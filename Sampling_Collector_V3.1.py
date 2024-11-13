@@ -300,8 +300,8 @@ class PlotWindow(QMainWindow):
                 self.gain_values["Lactate"] = self.calibration_lactate / current_lactate
 
             QMessageBox.information(self, "Calibration", "Calibration completed successfully.")
-            if self.parent():
-                self.parent().add_to_display("Calibration completed and gain values updated.")
+            if self.parent:
+                self.parent.add_to_display("Calibration completed and gain values updated.")
             self.update_gain_values()
         except Exception as e:
             QMessageBox.critical(self, "Calibration Error", f"Failed to calibrate sensors: {str(e)}")
@@ -310,8 +310,8 @@ class PlotWindow(QMainWindow):
         """Open the Calibration Settings dialog."""
         dialog = CalibrationSettingsDialog(self)
         dialog.exec_()
-        if self.parent():
-            self.parent().add_to_display("Calibration settings updated.")
+        if self.parent:
+            self.parent.add_to_display("Calibration settings updated.")
 
     def save_file(self):
         """Save a copy of the current data file to a specified location based on current plot type."""
@@ -436,34 +436,16 @@ class SettingsDialog(QDialog):
 
         # Add Ok and Cancel buttons
         self.ok_button = QPushButton("OK")
-        self.ok_button.clicked.connect(self.accept)
+        self.ok_button.clicked.connect(self.accept_settings)
         layout.addWidget(self.ok_button)
 
         self.setLayout(layout)
 
-    def accept(self):
-        """Save calibration values when OK is pressed."""
-        parent = self.parent()
-        if parent:
-            try:
-                # Update calibration values and ensure they are positive
-                calibration_glutamate = float(self.calibration_inputs["Glutamate"].text())
-                calibration_glutamine = float(self.calibration_inputs["Glutamine"].text())
-                calibration_glucose = float(self.calibration_inputs["Glucose"].text())
-                calibration_lactate = float(self.calibration_inputs["Lactate"].text())
-
-                if any(val <= 0 for val in [calibration_glutamate, calibration_glutamine, calibration_glucose, calibration_lactate]):
-                    QMessageBox.warning(self, "Invalid Input", "Calibration values must be greater than 0.")
-                    return
-
-                # Update parent's calibration values
-                parent.calibration_glutamate = calibration_glutamate
-                parent.calibration_glutamine = calibration_glutamine
-                parent.calibration_glucose = calibration_glucose
-                parent.calibration_lactate = calibration_lactate
-                QMessageBox.information(self, "Success", "Calibration values updated successfully.")
-            except ValueError:
-                QMessageBox.warning(self, "Invalid Input", "Please enter valid numbers for calibration values.")
+    def accept_settings(self):
+        """Update t_sampling and t_buffer when OK is pressed."""
+        global t_sampling, t_buffer
+        t_sampling = self.sampling_time_spinbox.value()
+        t_buffer = self.buffer_time_spinbox.value()
         super().accept()
 
 class CalibrationSettingsDialog(QDialog):
@@ -635,32 +617,68 @@ class AMUZAGUI(QWidget):
         return sorted_well_positions
 
     def on_runplate(self):
+        self.add_to_display(f"Running Plate on wells: {', '.join(self.order(list(selected_wells)))}")
+        self.runplate_now()
+        
+    def runplate_now(self):
         """Display the selected wells for RUNPLATE in the console and display screen."""
         if selected_wells:
             well_list = self.order(list(selected_wells))
             if connection is None:
                 QMessageBox.critical(self, "Error", "Please connect to AMUZA first!")
                 return
+
+            # Reset method list
+            self.method = []
+            # Adjust temperature before starting
             connection.AdjustTemp(6)
+            # Map the wells and create method sequences
             locations = connection.well_mapping(well_list)
-            connection.Move(locations)
-            self.add_to_display(f"Running Plate on wells: {', '.join(well_list)}")
+            for loc in locations:
+                # Append the method sequence for each location
+                self.method.append(AMUZA_Master.Sequence([AMUZA_Master.Method([loc], t_sampling)]))
+            # Start the Control_Move process
+            self.Control_Move(self.method, t_sampling)
+
         else:
             self.add_to_display("No wells selected for RUNPLATE.")
-    
+
     def on_move(self):
         """Display the selected wells for MOVE in the console and display screen."""
         if ctrl_selected_wells:
             well_list = self.order(list(ctrl_selected_wells))
+            self.add_to_display(f"Moving to wells: {', '.join(well_list)}")
             if connection is None:
                 QMessageBox.critical(self, "Error", "Please connect to AMUZA first!")
                 return
+            # Reset method list
+            self.method = []
+            
+            # Adjust temperature before moving
             connection.AdjustTemp(6)
+
+            # Map the wells and move
             locations = connection.well_mapping(well_list)
-            connection.Move(locations)
-            self.add_to_display(f"Moving to wells: {', '.join(well_list)}")
+            for loc in locations:
+                # Append the method sequence for each location
+                self.method.append(AMUZA_Master.Sequence([AMUZA_Master.Method([loc], t_sampling)]))
+            # Start the Control_Move process
+            self.Control_Move(self.method, t_sampling)
         else:
             self.add_to_display("No wells selected for MOVE.")
+
+    def Control_Move(self, method, duration):
+        """Move through the method sequences with buffer and sampling time."""
+        if connection is None:
+            QMessageBox.critical(self, "Error", "Please connect to AMUZA first!")
+            return
+        for seq in method:
+            time.sleep(t_buffer)
+            connection.Move(seq)
+            #self.add_to_display(f" {', ' seq}")
+            delay = 1
+            # Wait for the duration of sampling plus a minimum delay
+            time.sleep(duration + 9 + delay)
 
     def open_settings_dialog(self):
         """Open the settings dialog to adjust t_sampling and t_buffer."""

@@ -5,7 +5,7 @@ import sys
 import logging
 from datetime import datetime
 
-bt = 0  # Set to zero when editing program without the AMUZA connection and 1 for regular use
+bt = 1  # Set to zero when editing program without the AMUZA connection and 1 for regular use
 logs = False  # Add this line to toggle logging on/off
 if bt:
     import bluetooth
@@ -137,9 +137,9 @@ class AmuzaConnection:
         elif cmd[:2] == "@q":
             data = cmd[3:].split(',')
             if data[1] == '0':
-                self.setProgress(False)
+                self.isInProgress = False
             else:
-                self.setProgress(True)
+                self.isInProgress = True
                 print(f"Method number {data[1]}")
                 print(f"Time left at well {data[2].strip('0')}: {data[3].strip('0')} seconds")
             logging.info(f"Status Update: {cmd}")
