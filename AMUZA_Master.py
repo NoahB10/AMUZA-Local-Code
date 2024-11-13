@@ -1,11 +1,12 @@
 import threading
 import time
+import os
 import sys
 import logging
 from datetime import datetime
 
 bt = 0  # Set to zero when editing program without the AMUZA connection and 1 for regular use
-
+logs = False  # Add this line to toggle logging on/off
 if bt:
     import bluetooth
 
@@ -64,8 +65,7 @@ class Sequence:
             toReturn += f'M{i+1},{str(self.methods[i])}'
         return toReturn + "\n\n"
 
-class AmuzaConnection:
-    
+class AmuzaConnection:   
     isInProgress = False
     currentState = 0
     stateList = ["Resting", "Ejected Tray", "Unknown", "Unknown", "Moving Tray",
@@ -73,6 +73,36 @@ class AmuzaConnection:
                  "Unknown", "Unknown", "Unknown", "Unknown", "Unknown",
                  "Unknown", "Unknown", "Unknown", "Unknown", "Unknown"]
     
+    def __init__(self, showOutputInConsole):
+        if logs:
+            # Ensure the amuza_logs directory exists
+            log_folder = 'Amuza_Logs'
+            os.makedirs(log_folder, exist_ok=True)
+            
+            # Configure logging to save in the amuza_logs folder
+            currentTime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            log_file_path = os.path.join(log_folder, f'AMUZA-{currentTime}.log')
+            
+            logging.basicConfig(level=logging.DEBUG,
+                                format='%(asctime)s %(levelname)s: %(message)s',
+                                datefmt='%Y-%m-%d %H:%M:%S')
+            
+            # Set up the file handler for logging
+            file_handler = logging.FileHandler(log_file_path)
+            file_handler.setLevel(logging.DEBUG)
+            file_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s: %(message)s'))
+            
+            # Clear existing handlers before adding new ones
+            for handler in logging.getLogger().handlers:
+                logging.getLogger().removeHandler(handler)
+            
+            logging.getLogger().addHandler(file_handler)
+            logging.info("AMUZA Interface Initiated - Detailed Logs can be found in amuza_logs folder")
+        
+        self.showOutput = showOutputInConsole
+        print("AMUZA Interface Initiated")
+
+
     def queryThread(self, threadEvent, socket):
         while threadEvent.is_set():
             socket.send("@Q\n")
@@ -116,62 +146,52 @@ class AmuzaConnection:
             self.currentState = int(data[0])
         else:
             print(f"? {cmd}")
-            
-    def __init__(self, showOutputInConsole):
-        logging.basicConfig(level=logging.DEBUG,
-                            format='%(asctime)s %(levelname)s: %(message)s',
-                            datefmt='%Y-%m-%d %H:%M:%S')
-        
-        currentTime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        file_handler = logging.FileHandler(f'AMUZA-{currentTime}.log')
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s: %(message)s'))
-        
-        for handler in logging.getLogger().handlers:
-            logging.getLogger().removeHandler(handler)
-        
-        logging.getLogger().addHandler(file_handler)
-        self.showOutput = showOutputInConsole
-        print(f"AMUZA Interface Initiated - Detailed Logs can be found in AMUZA-{currentTime}.log")
-        logging.info("AMUZA Interface Initiated")
     
     def connect(self):
-        print("Attempting to Connect to AMUZA")
-        logging.info("Attempting to Connect to AMUZA")
+        if logs:
+            print("Attempting to Connect to AMUZA")
+            logging.info("Attempting to Connect to AMUZA")
         
         if bt:  # Use the real Bluetooth socket
-            print(f"Scanning")
-            logging.info("Scanning")
+            if logs:
+                print(f"Scanning")
+                logging.info("Scanning")
             nearby_devices = bluetooth.discover_devices(lookup_names=True,lookup_class=True)
-            print("Found {} devices.".format(len(nearby_devices)))
-            logging.info("Found {} devices.".format(len(nearby_devices)))
+            if logs:
+                print("Found {} devices.".format(len(nearby_devices)))
+                logging.info("Found {} devices.".format(len(nearby_devices)))
             address = ""
             for addr, name, device_class in nearby_devices:
-                print(f"  Address: {addr}")
-                print(f"  Name: {name}")
-                print(f"  Class: {device_class}")
-                logging.info(f"  Address: {addr}")
-                logging.info(f"  Name: {name}")
-                logging.info(f"  Class: {device_class}")
+                if logs:
+                    print(f"  Address: {addr}")
+                    print(f"  Name: {name}")
+                    print(f"  Class: {device_class}")
+                    logging.info(f"  Address: {addr}")
+                    logging.info(f"  Name: {name}")
+                    logging.info(f"  Class: {device_class}")
                 if(name=='FC90-0034'):
                     address=addr
             if(address==""):
-                print("AMUZA not found, press ENTER to exit")
-                logging.critical("AMUZA not found, press ENTER to exit")
+                if logs:
+                    print("AMUZA not found, press ENTER to exit")
+                    logging.critical("AMUZA not found, press ENTER to exit")
                 input()
                 exit()
-            print("Attempting to Connect to AMUZA")
-            logging.info("Attempting to Connect to AMUZA")
+            if logs:    
+                print("Attempting to Connect to AMUZA")
+                logging.info("Attempting to Connect to AMUZA")
             socket = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
             try:
                 socket.connect((address,1))
             except:
-                print("Connection Failure, Press ENTER to exit")
-                logging.critical("Connection Failure, Press ENTER to exit")
+                if logs:
+                    print("Connection Failure, Press ENTER to exit")
+                    logging.critical("Connection Failure, Press ENTER to exit")
                 input()
                 exit()
-            print("Connection Success")
-            logging.info("Connection Success")
+            if logs:
+                print("Connection Success")
+                logging.info("Connection Success")
             socket.send("@?\n")
             time.sleep(0.2)
             socket.send("@Q\n")
@@ -180,8 +200,9 @@ class AmuzaConnection:
         else:  # Use the mock socket for testing
             socket = MockBluetoothSocket()
             socket.connect(("Mock Address", 1))
-            print("Mock connection success")
-            logging.info("Mock connection success")
+            if logs:
+                print("Mock connection success")
+                logging.info("Mock connection success")
         
         self.socket = socket
         threads = threading.Event()
@@ -218,23 +239,26 @@ class AmuzaConnection:
         """Interactive console interface for debugging and controlling the connection."""
         while True:
             command = input()
-            logging.info(f"User Input: {command}")
+            if logs: logging.info(f"User Input: {command}")
             if(self.checkProgress() and command != ("STOP" or "EXIT" or "STATUS")):
                 print("Machine is currently doing something, send STOP to make your command work")
             if(command=="EXIT"):
-                logging.info(f"Exiting...")
-                print("Exiting...")
+                if logs:
+                    logging.info(f"Exiting...")
+                    print("Exiting...")
                 return
             if(command=="DEMO MOVE"):
-                logging.info("Sent Move Command")
-                print("Sent Move Command")
+                if logs:
+                    logging.info("Sent Move Command")
+                    print("Sent Move Command")
                 method1 = Method([1,5,13,71],15)
                 sequence = Sequence([method1])
                 self.Move(sequence)
 
             if(command=="SAMPLING"):
-                logging.info("Sent Sampling Command")
-                print("Sent Sampling Command")
+                if logs:
+                    logging.info("Sent Sampling Command")
+                    print("Sent Sampling Command")
                 # One way to write the methods are from well location names and time
                 loc = ['A7','B7','C7','D7']
                 loc_m = self.well_mapping(loc)
@@ -248,7 +272,7 @@ class AmuzaConnection:
                 #self.Move(method)
 
             if(command[:4]=="TEMP"):
-                logging.info(f"Adjusting Temp To {command[5:]}") # extra char to remove space
+                if logs: logging.info(f"Adjusting Temp To {command[5:]}") # extra char to remove space
                 self.AdjustTemp(float(command[5:]))
             if(command=="MOVE"):
                 print("How long at each well? (Seconds)")
@@ -288,8 +312,9 @@ class AmuzaConnection:
                 method = Method(wellList,int(length))
                 sequence = Sequence([method])
                 self.Move(sequence)
-                print(f"Moving To: {str(sequence)}")
-                logging.info(f"Moving To: {str(sequence)}")
+                if logs:
+                    print(f"Moving To: {str(sequence)}")
+                    logging.info(f"Moving To: {str(sequence)}")
                 if(loop):
                     print("Type END to end the loop")
                     loopEvent = threading.Event()
@@ -304,22 +329,24 @@ class AmuzaConnection:
                         else:
                             print("Type END to end the loop")
             if(command=="STOP"):
-                logging.info("Stopping...")
+                if logs: logging.info("Stopping...")
                 self.Stop()
             if(command=="STATUS"):
-                logging.info(f"Machine is currently: {self.stateList[self.currentState-1]} (ID: {self.currentState})") #-1 to adjust for the shift
-                print(f"Machine is currently: {self.stateList[self.currentState-1]}  (ID: {self.currentState})")
+                if logs:
+                    logging.info(f"Machine is currently: {self.stateList[self.currentState-1]} (ID: {self.currentState})") #-1 to adjust for the shift
+                    print(f"Machine is currently: {self.stateList[self.currentState-1]}  (ID: {self.currentState})")
             if(command=="CUSTOM"):
                 print("What do you want to send?")
                 cmd = input()
-                print(f"Sending command \"{cmd}\"")
-                logging.info(f"Sending Custom Command: {cmd}")
+                if logs:
+                    print(f"Sending command \"{cmd}\"")
+                    logging.info(f"Sending Custom Command: {cmd}")
                 self.socket.send(cmd)
             if(command=="EJECT"):
-                logging.info("Ejecting...")
+                if logs: logging.info("Ejecting...")
                 self.Eject()
             if(command=="INSERT"):
-                logging.info("Inserting...")
+                if logs: logging.info("Inserting...")
                 self.Insert()
             if(command=="HELP"):
                 print("EXIT - Exit the program\nDEMO MOVE - quick preprogrammed move command for debugging\nTEMP <float value between 0 and 99.9> - Adjust temperature\nMOVE - Wizard to move machine\nSTOP - Stop current action\nSTATUS - Get current status of the machine\nCUSTOM - Send custom command. Start it with @, end it with \\n\nEJECT - Eject the tray\nINSERT - Insert the tray\nHELP - Open this menu\nNEEDLE - Adjust the needle height")
@@ -330,14 +357,15 @@ class AmuzaConnection:
                 while True:
                     cmd = input()
                     if(cmd=="UP"):
-                        logging.info("Moving Needle Up")
+                        if logs: logging.info("Moving Needle Up")
                         self.NeedleUp()
                     elif(cmd=="DOWN"):
-                        logging.info("Moving Needle Down")
+                        if logs: logging.info("Moving Needle Down")
                         self.NeedleDown()
                     elif(cmd=="FINISH"):
-                        logging.info("Finished Needle Adjustments")
-                        print("Finished Needle Adjustments")
+                        if logs:
+                            logging.info("Finished Needle Adjustments")
+                            print("Finished Needle Adjustments")
                         self.socket.send("@V,180\n")
                         time.sleep(0.2)
                         self.socket.send("@T\n")
@@ -348,46 +376,51 @@ class AmuzaConnection:
     def Eject(self):
         """Send the command to eject the tray."""
         self.socket.send("@Y\n")
-        logging.info("Eject command sent")
+        if logs: logging.info("Eject command sent")
         print("Tray ejected")
 
     def Insert(self):
         """Send the command to insert the tray."""
         self.socket.send("@Z\n")
-        logging.info("Insert command sent")
+        if logs: logging.info("Insert command sent")
         print("Tray inserted")
 
     def Stop(self):
         """Send the command to stop the current operation."""
         self.socket.send("@T\n")
-        logging.info("Stop command sent")
-        print("Operation stopped")
+        if logs: 
+            logging.info("Stop command sent")
+            print("Operation stopped")
 
     def Move(self, sequence):
         """Send the move command with a sequence."""
         self.socket.send(str(sequence))
-        logging.info(f"Move command sent with sequence: {sequence}")
-        print("Moving according to sequence")
+        if logs: 
+            logging.info(f"Move command sent with sequence: {sequence}")
+            print("Moving according to sequence")
 
     def NeedleUp(self):
         """Send the command to move the needle up."""
         self.socket.send("@U01\n")
-        logging.info("Needle up command sent")
-        print("Needle moved up")
+        if logs: 
+            logging.info("Needle up command sent")
+            print("Needle moved up")
 
     def NeedleDown(self):
         """Send the command to move the needle down."""
         self.socket.send("@D01\n")
-        logging.info("Needle down command sent")
-        print("Needle moved down")
+        if logs: 
+            logging.info("Needle down command sent")
+            print("Needle moved down")
 
     def AdjustTemp(self, temperature):
         """Send the command to adjust the temperature."""
         if temperature < 0 or temperature > 99.9:
             raise ValueError("Temperature must be between 0 and 99.9")
         self.socket.send(f"@V,{temperature}\n")
-        logging.info(f"AdjustTemp command sent with temperature: {temperature}")
-        print(f"Temperature adjusted to {temperature}")
+        if logs:
+            logging.info(f"AdjustTemp command sent with temperature: {temperature}")
+            print(f"Temperature adjusted to {temperature}")
 
 if __name__ == '__main__':
     connection = AmuzaConnection(True)
