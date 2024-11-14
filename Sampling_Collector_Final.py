@@ -359,7 +359,24 @@ class PlotWindow(QMainWindow):
 
                     # Write the header to the file
                     with open(file_path, "w") as file:
-                        file.write("Time\tSensor Data\n")
+                        # Write the "Created" line
+                        created_time = datetime.now().strftime("%m/%d/%Y\t%I:%M:%S %p")
+                        file.write(f"Created: {created_time}\n")
+
+                        # Write the full header
+                        header = (
+                            "counter\tt[min]\t#1ch1\t#1ch2\t#1ch3\t#1ch4\t#1ch5\t#1ch6\t#1ch7\t#1ch8\t#1ch9\t#1ch10\t"
+                            "#1ch11\t#1ch12\t#1ch13\t#1ch14\t#1ch15\t#1ch16\t#2ch1\t#2ch2\t#2ch3\t#2ch4\t#2ch5\t#2ch6\t"
+                            "#2ch7\t#2ch8\t#2ch9\t#2ch10\t#2ch11\t#2ch12\t#2ch13\t#2ch14\t#2ch15\t#2ch16\t#3ch1\t#3ch2\t"
+                            "#3ch3\t#3ch4\t#3ch5\t#3ch6\t#3ch7\t#3ch8\t#3ch9\t#3ch10\t#3ch11\t#3ch12\t#3ch13\t#3ch14\t"
+                            "#3ch15\t#3ch16\t#4ch1\t#4ch2\t#4ch3\t#4ch4\t#4ch5\t#4ch6\t#4ch7\t#4ch8\t#4ch9\t#4ch10\t"
+                            "#4ch11\t#4ch12\t#4ch13\t#4ch14\t#4ch15\t#4ch16\n"
+                        )
+                        file.write(header)
+
+                        # Write the "Start" line
+                        start_time = datetime.now().strftime("%m/%d/%Y\t%I:%M:%S %p")
+                        file.write(f"Start: {start_time}\n")
 
                     # Start a thread to write data from self.data_list to the file
                     threading.Thread(target=self.write_record_data, daemon=True).start()
@@ -376,19 +393,34 @@ class PlotWindow(QMainWindow):
             print("Stopped recording data.")
 
     def write_record_data(self):
-        """Continuously write data from self.data_list into the specified record file."""
+        """Continuously write data from self.data_list into the specified record file with proper formatting."""
         try:
             with open(self.current_record_file_path, "a") as file:  # Open in append mode
+                counter = 1
+                start_time = time.time()
+
                 while self.is_recording:
                     if self.data_list:
-                        timestamp = datetime.now().strftime('%H:%M:%S')
+                        # Calculate the elapsed time in minutes
+                        elapsed_time = (time.time() - start_time) / 60
+                        elapsed_time_str = f"{elapsed_time:.3f}"
+
+                        # Prepare the data line with counter, elapsed time, and sensor data
                         data_str = "\t".join(map(str, self.data_list))
-                        file.write(f"{timestamp}\t{data_str}\n")
+                        line = f"{counter}\t{elapsed_time_str}\t{data_str}\n"
+
+                        # Write the line to the file
+                        file.write(line)
                         file.flush()  # Ensure immediate write to disk
-                        print(f"Recorded data at {timestamp}: {self.data_list}")
+                        print(f"Recorded data line: {line.strip()}")
+
+                        # Increment the counter
+                        counter += 1
+
                     time.sleep(1)  # Adjust based on desired logging frequency
         except Exception as e:
             print(f"Error while writing record data: {str(e)}")
+
 
     def connect_to_sensor(self):
         """Open a dialog to select a COM port and connect to the sensor."""
