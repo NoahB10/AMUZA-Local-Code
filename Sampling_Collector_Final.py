@@ -337,7 +337,7 @@ class PlotWindow(QMainWindow):
             self.update_plot(file_path)  # Load and plot the selected file
 
     def toggle_record(self):
-        """Toggle the recording state and start/stop data logging with user-specified file name."""
+        """Toggle the recording state and start/stop writing data from self.data_list to the user-specified file."""
         if self.start_record_action.isChecked():
             if self.connection_status:
                 # Ensure the 'Recorded_Files' folder exists
@@ -353,10 +353,17 @@ class PlotWindow(QMainWindow):
                 )
 
                 if file_path:
-                    # Start data logging with the chosen file path
+                    # Set the recording flag and file path
                     self.is_recording = True
                     self.current_record_file_path = file_path
-                    threading.Thread(target=self.run_datalogger, args=(file_path,), daemon=True).start()
+
+                    # Write the header to the file
+                    with open(file_path, "w") as file:
+                        file.write("Time\tSensor Data\n")
+
+                    # Start a thread to write data from self.data_list to the file
+                    threading.Thread(target=self.write_record_data, daemon=True).start()
+                    print(f"Started recording data to: {file_path}")
                 else:
                     # User canceled the file dialog, uncheck the record action
                     self.start_record_action.setChecked(False)
@@ -366,6 +373,22 @@ class PlotWindow(QMainWindow):
         else:
             # Stop recording
             self.is_recording = False
+            print("Stopped recording data.")
+
+    def write_record_data(self):
+        """Continuously write data from self.data_list into the specified record file."""
+        try:
+            with open(self.current_record_file_path, "a") as file:  # Open in append mode
+                while self.is_recording:
+                    if self.data_list:
+                        timestamp = datetime.now().strftime('%H:%M:%S')
+                        data_str = "\t".join(map(str, self.data_list))
+                        file.write(f"{timestamp}\t{data_str}\n")
+                        file.flush()  # Ensure immediate write to disk
+                        print(f"Recorded data at {timestamp}: {self.data_list}")
+                    time.sleep(1)  # Adjust based on desired logging frequency
+        except Exception as e:
+            print(f"Error while writing record data: {str(e)}")
 
     def connect_to_sensor(self):
         """Open a dialog to select a COM port and connect to the sensor."""

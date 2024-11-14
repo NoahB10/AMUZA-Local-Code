@@ -84,13 +84,13 @@ class PotentiostatReader:
     def run(self):
         if self.sample_number == 1:
             self.write_template()  # Write the template on the first run
-
         data = self.get_data()
         if data is not None:
             with open(self.output_filename, 'a') as file:
                 data_line = f"{self.sample_number}\t" + "\t".join(data) + "\n"
                 file.write(data_line)
             self.sample_number += 1
+        return data
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Potentiostat Data Reader")
