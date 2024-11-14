@@ -177,36 +177,26 @@ class PlotWindow(QMainWindow):
 
         self.update_plot()
 
-    def create_default_filename(self):
-        """Generate a default filename based on date and time and ensure folder exists."""
-        folder_path = "Sensor_Readings"
-        os.makedirs(folder_path, exist_ok=True)
-        
-        current_time = datetime.now()
-        filename = f"Sensor_readings_{current_time.strftime('%d_%m_%y_%H_%M')}.txt"
-        file_path = os.path.join(folder_path, filename)
-        return file_path
 
     def start_datalogger(self):
         """Start the data logger in a separate thread with automatic logging."""
         self.is_recording = True
-        self.default_file_path = self.create_default_filename()  # Generate the default file path
         self.current_plot_type = "record"  # Set the plot type to record
-        threading.Thread(target=self.run_datalogger, args=(self.default_file_path,), daemon=True).start()
 
     def run_datalogger(self, file_path):
-        """Run the data logger, save data to file, and plot it."""
-        COM_PORT = self.serial_connection # Ex. '/dev/ttyUSB0'
-        DataLogger = PotentiostatReader(com_port=COM_PORT, baud_rate=9600, timeout=0.5, output_filename=file_path)
-        with open(file_path, "w") as file:
-            file.write("Time\tSensor Data\n")  # Header line for the file
-            while self.is_recording:
-                self.data_list = DataLogger.run() # Replace with actual sensor data retrieval
-                timestamp = datetime.now().strftime('%H:%M:%S')
-                file.write(f"{timestamp}\t{self.data_list}\n")
-                file.flush()
-                self.update_plot(file_path)
-                time.sleep(1)  # Adjust based on desired logging frequency
+        """Run the data logger, save data to file, and log updates to the command line."""
+        try:
+            print(f"Starting data logger on COM port: {self.selected_port}")
+            DataLogger = PotentiostatReader(com_port=self.selected_port, baud_rate=9600, timeout=0.5, output_filename=file_path)
+            with open(file_path, "w") as file:
+                while self.connection_status:
+                    self.data_list = DataLogger.run()
+                    QTimer.singleShot(0, lambda: self.update_plot(file_path))
+                    print(f"Logged data {self.data_list}")
+                    time.sleep(1)
+        except Exception as e:
+            print(f"Error during data logging: {str(e)}")
+
 
     def update_plot(self, file_path=None):
         """Update the plot with data from the specified file or show default if no file is provided."""
@@ -347,14 +337,34 @@ class PlotWindow(QMainWindow):
             self.update_plot(file_path)  # Load and plot the selected file
 
     def toggle_record(self):
-        """Toggle the recording state and start/stop data logging."""
+        """Toggle the recording state and start/stop data logging with user-specified file name."""
         if self.start_record_action.isChecked():
             if self.connection_status:
-                self.start_datalogger()  # Start data logging if connected
+                # Ensure the 'Recorded_Files' folder exists
+                recorded_folder = "Recorded_Files"
+                os.makedirs(recorded_folder, exist_ok=True)
+
+                # Prompt the user to choose a file name
+                file_path, _ = QFileDialog.getSaveFileName(
+                    self,
+                    "Save Recorded Data",
+                    os.path.join(recorded_folder, "Sensor_readings.txt"),
+                    "Text Files (*.txt)"
+                )
+
+                if file_path:
+                    # Start data logging with the chosen file path
+                    self.is_recording = True
+                    self.current_record_file_path = file_path
+                    threading.Thread(target=self.run_datalogger, args=(file_path,), daemon=True).start()
+                else:
+                    # User canceled the file dialog, uncheck the record action
+                    self.start_record_action.setChecked(False)
             else:
                 QMessageBox.warning(self, "Warning", "Please connect to the sensor before recording.")
                 self.start_record_action.setChecked(False)
         else:
+            # Stop recording
             self.is_recording = False
 
     def connect_to_sensor(self):
@@ -381,15 +391,36 @@ class PlotWindow(QMainWindow):
         dialog.exec_()
 
     def establish_connection(self, dialog, selected_port):
-        """Establish a connection to the selected COM port."""
+        """Establish a connection to the selected COM port and start continuous logging."""
         try:
+            # Attempt to connect to the selected COM port
             self.serial_connection = serial.Serial(selected_port, baudrate=9600, timeout=1)
+            self.selected_port = selected_port
             self.connection_status = True
             self.status_label.setText("Connected")
             dialog.accept()
+
+            # Print the successful connection message
+            print(f"Connected to COM port: {self.selected_port}")
+
+            # Start continuous logging in a separate thread
+            logger_folder = "Sensor_Readings"
+            os.makedirs(logger_folder, exist_ok=True)
+            current_time = datetime.now()
+            filename = f"Sensor_readings_{current_time.strftime('%d_%m_%y_%H_%M')}.txt"
+            log_file_path = os.path.join(logger_folder,filename)
+            threading.Thread(target=self.run_datalogger, args=(log_file_path,), daemon=True).start()
+
+            # Inform the user of successful connection
+            QMessageBox.information(self, "Info", "Connected to sensor and started continuous logging.")
         except serial.SerialException as e:
+            # Handle connection error
             QMessageBox.critical(self, "Connection Error", f"Could not connect to {selected_port}.\nError: {e}")
             self.status_label.setText("Disconnected")
+            self.selected_port = None
+
+
+
 
     def update_gain_values(self):
         """Update gain values based on user input and re-plot the data."""
@@ -407,10 +438,6 @@ class PlotWindow(QMainWindow):
             self.update_plot(self.default_file_path)
         else:
             self.update_plot()
-
-    def mock_receive_data(self):
-        """Mock method to simulate receiving data from the sensor."""
-        return np.random.random()
 
 class SettingsDialog(QDialog):
     """Settings window to adjust t_sampling and t_buffer."""

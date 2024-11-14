@@ -24,12 +24,13 @@ from SIX_SERVER_READER import PotentiostatReader
 import AMUZA_Master
 
 # Global variables
-t_buffer = 65
-t_sampling = 91
+t_buffer = 1 #65
+t_sampling = 10 #91
 sample_rate = 1
 connection = None  # This will be initialized after the user clicks 'Connect'
 selected_wells = set()  # Set to store wells selected with click-and-drag (used for RUNPLATE)
 ctrl_selected_wells = set()  # Set to store wells selected with Ctrl+Click (used for MOVE)
+
 
 class WellLabel(QLabel):
 
@@ -617,13 +618,10 @@ class AMUZAGUI(QWidget):
         return sorted_well_positions
 
     def on_runplate(self):
-        self.add_to_display(f"Running Plate on wells: {', '.join(self.order(list(selected_wells)))}")
-        self.runplate_now()
-        
-    def runplate_now(self):
         """Display the selected wells for RUNPLATE in the console and display screen."""
         if selected_wells:
-            well_list = self.order(list(selected_wells))
+            self.well_list = self.order(list(selected_wells))
+            self.add_to_display(f"Running Plate on wells: {', '.join(self.well_list)}\nSampled:")
             if connection is None:
                 QMessageBox.critical(self, "Error", "Please connect to AMUZA first!")
                 return
@@ -633,7 +631,7 @@ class AMUZAGUI(QWidget):
             # Adjust temperature before starting
             connection.AdjustTemp(6)
             # Map the wells and create method sequences
-            locations = connection.well_mapping(well_list)
+            locations = connection.well_mapping(self.well_list)
             for loc in locations:
                 # Append the method sequence for each location
                 self.method.append(AMUZA_Master.Sequence([AMUZA_Master.Method([loc], t_sampling)]))
@@ -646,8 +644,9 @@ class AMUZAGUI(QWidget):
     def on_move(self):
         """Display the selected wells for MOVE in the console and display screen."""
         if ctrl_selected_wells:
-            well_list = self.order(list(ctrl_selected_wells))
-            self.add_to_display(f"Moving to wells: {', '.join(well_list)}")
+            self.well_list = self.order(list(ctrl_selected_wells))
+            self.add_to_display(f"Moving to wells: {', '.join(self.well_list)}")
+            self.add_to_display(f"Sampled: ")
             if connection is None:
                 QMessageBox.critical(self, "Error", "Please connect to AMUZA first!")
                 return
@@ -658,7 +657,7 @@ class AMUZAGUI(QWidget):
             connection.AdjustTemp(6)
 
             # Map the wells and move
-            locations = connection.well_mapping(well_list)
+            locations = connection.well_mapping(self.well_list)
             for loc in locations:
                 # Append the method sequence for each location
                 self.method.append(AMUZA_Master.Sequence([AMUZA_Master.Method([loc], t_sampling)]))
@@ -668,17 +667,36 @@ class AMUZAGUI(QWidget):
             self.add_to_display("No wells selected for MOVE.")
 
     def Control_Move(self, method, duration):
-        """Move through the method sequences with buffer and sampling time."""
-        if connection is None:
-            QMessageBox.critical(self, "Error", "Please connect to AMUZA first!")
-            return
-        for seq in method:
-            time.sleep(t_buffer)
-            connection.Move(seq)
-            #self.add_to_display(f" {', ' seq}")
-            delay = 1
-            # Wait for the duration of sampling plus a minimum delay
-            time.sleep(duration + 9 + delay)
+        """Control the movement through wells using QTimer for non-blocking execution."""
+        self.current_index = 0  # Track the current well index
+        self.method = method
+        self.duration = duration
+
+        # Create a QTimer for handling the well movement
+        self.move_timer = QTimer(self)
+        self.move_timer.timeout.connect(self.execute_move)
+        self.move_timer.start(t_buffer * 1000)  # Start timer with initial buffer time
+
+    def execute_move(self):
+        """Execute the move for the current well using QTimer."""
+        if self.current_index < len(self.method):
+            # Move to the current well and update the display
+            current_method = self.method[self.current_index]
+            connection.Move(current_method)
+            # Get the current text from the display
+            current_text = self.display_screen.toPlainText()
+            # Update the current line by appending the new well to it
+            updated_text = f"{current_text}{self.well_list[self.current_index]}, "
+            # Set the updated text back to the display
+            self.display_screen.setPlainText(updated_text)
+            self.display_screen.moveCursor(self.display_screen.textCursor().End)
+            # Increment the index and set a delay before the next move
+            self.current_index += 1
+            self.move_timer.setInterval((self.duration + 9) * 1000)  # Set interval for duration + delay
+        else:
+            # Stop the timer when all wells have been processed
+            self.move_timer.stop()
+            self.add_to_display(f"{', '.join(self.well_list)} Complete.")
 
     def open_settings_dialog(self):
         """Open the settings dialog to adjust t_sampling and t_buffer."""

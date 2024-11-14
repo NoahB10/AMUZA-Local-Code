@@ -5,7 +5,7 @@ import sys
 import logging
 from datetime import datetime
 
-bt = 1  # Set to zero when editing program without the AMUZA connection and 1 for regular use
+bt = 0  # Set to zero when editing program without the AMUZA connection and 1 for regular use
 logs = False  # Add this line to toggle logging on/off
 if bt:
     import bluetooth
@@ -24,7 +24,7 @@ class MockBluetoothSocket:
         print(f"Mock sending data: {data}")
 
     def recv(self, buffer_size):
-        print(f"Mock receiving data with buffer size: {buffer_size}")
+        #print(f"Mock receiving data with buffer size: {buffer_size}")
         # Simulate data reception
         return b"Mock data received"
 
