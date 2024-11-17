@@ -16,8 +16,8 @@ from PyQt5.QtGui import QMouseEvent
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QMainWindow, QDialog, QTextEdit, QLabel,
     QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout, QSpinBox,
-    QPushButton, QLineEdit, QFileDialog, QMenuBar, QAction,
-    QMessageBox, QComboBox, QWidgetAction
+    QPushButton, QLineEdit, QFileDialog, QAction,
+    QMessageBox, QComboBox
 )
 # Custom Imports
 from SIX_SERVER_READER import PotentiostatReader
