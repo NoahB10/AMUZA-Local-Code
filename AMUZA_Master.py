@@ -24,7 +24,7 @@ class MockBluetoothSocket:
         print(f"Mock sending data: {data}")
 
     def recv(self, buffer_size):
-        print(f"Mock receiving data with buffer size: {buffer_size}")
+        #print(f"Mock receiving data with buffer size: {buffer_size}")
         # Simulate data reception
         return b"Mock data received"
 
@@ -137,9 +137,9 @@ class AmuzaConnection:
         elif cmd[:2] == "@q":
             data = cmd[3:].split(',')
             if data[1] == '0':
-                self.setProgress(False)
+                self.isInProgress = False
             else:
-                self.setProgress(True)
+                self.isInProgress = True
                 print(f"Method number {data[1]}")
                 print(f"Time left at well {data[2].strip('0')}: {data[3].strip('0')} seconds")
             logging.info(f"Status Update: {cmd}")
