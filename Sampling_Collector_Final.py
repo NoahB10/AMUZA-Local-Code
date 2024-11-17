@@ -236,6 +236,8 @@ class PlotWindow(QMainWindow):
                 df = df[3:]
                 df.columns = new_header
 
+                    
+                #Remove comments at the end if they appear
                 index = []
                 for i in range(3, len(df) + 2):
                     a = df.loc[i, "counter"]
@@ -243,8 +245,11 @@ class PlotWindow(QMainWindow):
                         index.append(i)
                         break
 
-                df2 = df.loc[0 : index[0] - 1, :]
-                df2 = df2.apply(pd.to_numeric)
+                if len(index):
+                    df2 = df.loc[0 : index[0] - 1, :]
+                    df2 = df2.apply(pd.to_numeric)
+                else:
+                    df2 = df.apply(pd.to_numeric)
 
                 glutamate = df2["#1ch1"] - df2["#1ch2"]
                 glutamine = df2["#1ch3"] - df2["#1ch1"]
