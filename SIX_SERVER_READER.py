@@ -43,10 +43,16 @@ class PotentiostatReader:
         out_data = [int.from_bytes(b''.join([x, next(it)]), byteorder='big', signed=True) for x in it]
         return out_data
 
+
     def convert_data(self, out_data):
         gain = 50 / (2**15 - 1)
         sensed_values = [str(round(int(x) * gain, 3)) for x in out_data[:6]]
-        temperature = str(round(float(out_data[6]) / 16, 3)) if len(out_data) > 6 else "0"
+        
+        # Handle temperature (Channel 7)
+        if len(out_data) > 6 and out_data[6] is not None:
+            temperature = str(round(float(out_data[6]) / 16, 3))
+        else:
+            temperature = "1"  # Default temperature value if missing
 
         # Initialize all channels with '0'
         channel_data = ['0'] * len(self.channels)
@@ -55,8 +61,14 @@ class PotentiostatReader:
         for i in range(6):
             channel_data[i] = sensed_values[i]
 
-        # Return the complete line of data including temperature
-        return channel_data + [temperature]
+        # Set Channel 7 to the temperature value
+        channel_data[6] = temperature
+
+        # Set Channel 8 to '1' as a flag for a complete read
+        channel_data[7] = "1"
+
+        # Return the complete line of data including temperature and status
+        return channel_data
 
     def get_data(self):
         self.open_serial_connection()
@@ -76,6 +88,7 @@ class PotentiostatReader:
                 out_data = self.process_data_block()
                 return self.convert_data(out_data)
         return None
+
 
     def run(self):
         created_time = None
