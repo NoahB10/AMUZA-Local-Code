@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QLineEdit, QFileDialog, QMenuBar, QAction,
     QMessageBox, QComboBox, QWidgetAction
 )
+
 # Custom Imports
 from SIX_SERVER_READER import PotentiostatReader
 import AMUZA_Master
@@ -204,83 +205,74 @@ class PlotWindow(QMainWindow):
 
 
     def update_plot(self, file_path=None):
-        """Update the plot with data from the specified file or show default if no file is provided."""
-        self.figure.clear()
-        ax = self.figure.add_subplot(111)
-
-        if file_path is None:
-            # Show default sine wave plot
-            x = np.linspace(0, 10, 100)
-            y = np.sin(x)
-            ax.plot(x, y, label="Default Sine Wave")
-            ax.set_xlabel("X-axis")
-            ax.set_ylabel("Y-axis")
-            ax.set_title("Default Plot: Sine Wave")
-            self.current_plot_type = "default"
-        else:
-            try:
-                # Determine if the file is a loaded or recorded file
+            """Update the plot with data from the specified file or show default if no file is provided."""
+            if file_path is None:
+                # Show default sine wave plot
+                self.figure.clear()
+                ax = self.figure.add_subplot(111)
+                x = np.linspace(0, 10, 100)
+                y = np.sin(x)
+                ax.plot(x, y, label="Default Sine Wave")
+                ax.set_xlabel("X-axis")
+                ax.set_ylabel("Y-axis")
+                ax.set_title("Default Plot: Sine Wave")
+                ax.legend()
+                ax.grid(True)
+                self.current_plot_type = "default"  # Set the plot type to default
+                self.figure.subplots_adjust(top=0.955, bottom=0.066, left=0.079, right=0.990)
+                self.canvas.draw()
+            else:
+                # Process loaded file or recorded data file
+                self.figure.clear()
                 self.current_plot_type = "load" if file_path == self.loaded_file_path else "record"
 
-                # Read file and parse data
+                # Implement the file loading logic specific to your file structure
                 with open(file_path, "r", newline="") as file:
                     lines = file.readlines()
-
-                # Handle both new and legacy file formats
                 data = [line.strip().split("\t") for line in lines]
                 df = pd.DataFrame(data)
                 df = df.loc[:, :8]
-                new_header = df.iloc[1]  # Assumes header is at line 1
-                df = df[3:]  # Assumes data starts at line 3
+                new_header = df.iloc[1]
+                df = df[3:]
                 df.columns = new_header
 
-                # Detect the end of the numeric data
                 index = []
                 for i in range(3, len(df) + 2):
-                    if not df.loc[i, "counter"].isdigit():
+                    a = df.loc[i, "counter"]
+                    if not a.isdigit():
                         index.append(i)
                         break
 
-                # Extract and convert data to numeric
                 df2 = df.loc[0 : index[0] - 1, :]
                 df2 = df2.apply(pd.to_numeric)
 
-                # Compute metabolites based on channels and gain values
                 glutamate = df2["#1ch1"] - df2["#1ch2"]
                 glutamine = df2["#1ch3"] - df2["#1ch1"]
                 glucose = df2["#1ch5"] - df2["#1ch4"]
                 lactate = df2["#1ch6"] - df2["#1ch4"]
 
                 results = pd.DataFrame({
-                    "Glutamate": glutamate * self.gain_values.get("Glutamate", 1),
-                    "Glutamine": glutamine * self.gain_values.get("Glutamine", 1),
-                    "Glucose": glucose * self.gain_values.get("Glucose", 1),
-                    "Lactate": lactate * self.gain_values.get("Lactate", 1),
+                    "Glutamate": glutamate * self.gain_values["Glutamate"],
+                    "Glutamine": glutamine * self.gain_values["Glutamine"],
+                    "Glucose": glucose * self.gain_values["Glucose"],
+                    "Lactate": lactate * self.gain_values["Lactate"],
                 })
 
-                # Plot each metabolite
+                ax = self.figure.add_subplot(111)
                 for column in results.columns:
                     ax.plot(df2["t[min]"], results[column], label=column)
 
                 ax.set_xlabel("Time (minutes)")
-                ax.set_ylabel("Current (mA)")
-                ax.set_title("Metabolite Time Series Data")
+                ax.set_ylabel("mA")
+                ax.set_title("Time Series Data for Selected Channels")
                 ax.legend()
-                self.current_plot_type = "load"
-            except Exception as e:
-                # If there's an error, show a message and fallback to default plot
-                print(f"Error loading file: {e}")
-                x = np.linspace(0, 10, 100)
-                y = np.sin(x)
-                ax.plot(x, y, label="Default Sine Wave")
-                ax.set_title("Error: Failed to Load File")
+                ax.grid(True)
+                ax.xaxis.set_major_locator(MaxNLocator(nbins=12))
+                ax.yaxis.set_major_locator(MaxNLocator(nbins=12))
 
-        # Common plot settings
-        ax.grid(True)
-        ax.xaxis.set_major_locator(MaxNLocator(nbins=12))
-        ax.yaxis.set_major_locator(MaxNLocator(nbins=12))
-        self.figure.subplots_adjust(top=0.955, bottom=0.066, left=0.079, right=0.990)
-        self.canvas.draw()
+                # Apply tight layout
+                self.figure.subplots_adjust(top=0.955, bottom=0.066, left=0.079, right=0.990)
+                self.canvas.draw()
 
 
     def calibrate_sensors(self):
@@ -526,8 +518,8 @@ class SettingsDialog(QDialog):
         self.buffer_time_spinbox.setValue(t_buffer)
 
         # Add to layout
-        layout.addRow("Sampling Time (t_sampling):", self.sampling_time_spinbox)
-        layout.addRow("Buffer Time (t_buffer):", self.buffer_time_spinbox)
+        layout.addRow("Sampling Time:", self.sampling_time_spinbox)
+        layout.addRow("Buffer Time:", self.buffer_time_spinbox)
 
         # Add Ok and Cancel buttons
         self.ok_button = QPushButton("OK")
@@ -617,10 +609,19 @@ class AMUZAGUI(QWidget):
         
         rounded_button_style = """
             QPushButton {
-                background-color: lightgrey;
-                border: 2px solid #0056b3;
-                border-radius: 10px;
-                padding: 5px;
+                background-color: #FDFDFD ; /* Light grey background */
+                border: 1px solid #D0D0D0; /* Neutral grey border */
+                border-radius: 10px; /* Slight rounding of the corners */
+                padding: 2px 8px; /* Adjusted padding for a more compact look */
+                font-size: 13px; /* Smaller font size */
+                max-width: 170px; /* Maximum width to fit the text comfortably */
+                max-height: 32px; /* Maximum height for a smaller button */
+            }
+            QPushButton:hover {
+                background-color: #C0C0C0; /* Darker grey on hover */
+            }
+            QPushButton:pressed {
+                background-color: #D3D3D3; /* Even darker grey when pressed */
             }
         """
 
@@ -723,6 +724,28 @@ class AMUZAGUI(QWidget):
         """Orders the selction sequence to run from A1 to A12 down till G12"""
         sorted_well_positions = sorted(well_positions, key=lambda x: (x[0], int(x[1:])))
         return sorted_well_positions
+    
+    def apply_button_style(self, button):
+        """Reapply the custom rounded style to the button."""
+        rounded_button_style = """
+            QPushButton {
+                background-color: #FDFDFD ; /* Light grey background */
+                border: 1px solid #D0D0D0; /* Neutral grey border */
+                border-radius: 10px; /* Slight rounding of the corners */
+                padding: 2px 8px; /* Adjusted padding for a more compact look */
+                font-size: 13px; /* Smaller font size */
+                max-width: 170px; /* Maximum width to fit the text comfortably */
+                max-height: 32px; /* Maximum height for a smaller button */
+            }
+            QPushButton:hover {
+                background-color: #C0C0C0; /* Darker grey on hover */
+            }
+            QPushButton:pressed {
+                background-color: #D3D3D3; /* Even darker grey when pressed */
+            }
+        """
+        button.setStyleSheet(rounded_button_style)
+
 
     def on_runplate(self):
         """Display the selected wells for RUNPLATE in the console and display screen."""
@@ -837,7 +860,8 @@ class AMUZAGUI(QWidget):
         ]
         for button in buttons:
             button.setEnabled(True)
-            button.setStyleSheet("")
+            self.apply_button_style(button)
+
 
     def on_insert(self):
         if connection is None:
