@@ -16,8 +16,8 @@ from PyQt5.QtGui import QMouseEvent
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QMainWindow, QDialog, QTextEdit, QLabel,
     QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout, QSpinBox,
-    QPushButton, QLineEdit, QFileDialog, QMenuBar, QAction,
-    QMessageBox, QComboBox, QWidgetAction
+    QPushButton, QLineEdit, QFileDialog, QAction, QMessageBox,
+     QComboBox
 )
 
 # Custom Imports
@@ -71,7 +71,7 @@ class PlotWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Data Plot")
-        self.setGeometry(200, 200, 1000, 800)
+        self.setGeometry(200, 200, 1100, 800)
         self.data_list = []
         self.is_recording = False
         self.connection_status = False
@@ -92,11 +92,38 @@ class PlotWindow(QMainWindow):
         self.calibration_glucose = 0.0
         self.calibration_lactate = 0.0
 
+        main_layout = QVBoxLayout()
+
+        # Create a vertical layout for the graph (canvas + toolbar)
+        graph_layout = QVBoxLayout()
+
         # Set up the matplotlib figure and canvas
         self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)
         self.nav_toolbar = NavigationToolbar(self.canvas, self)
-        
+
+        # Add the canvas and navigation toolbar to the graph layout
+        graph_layout.addWidget(self.canvas)
+        graph_layout.addWidget(self.nav_toolbar)
+
+        # Create a QTextEdit widget for instructions
+        self.instructions_text = QTextEdit(self)
+        self.instructions_text.setReadOnly(True)
+        self.instructions_text.setStyleSheet("background-color: #F7F7F7; border: 1px solid #D0D0D0;")
+        self.instructions_text.setText(
+        "Plot Instructions:\n"
+        "1. Load data using 'Load New' from the File menu.\n"
+        "2. Click 'Start Record' to begin logging data.\n"
+        "3. Adjust gain values in the fields below the plot.\n"
+        "4. Use the toolbar for zooming and panning."
+        )
+        self.instructions_text.setFixedWidth(200)
+
+        # Create a horizontal layout to hold the graph and instructions side by side
+        plot_instructions_layout = QHBoxLayout()
+        plot_instructions_layout.addLayout(graph_layout)  # Add the graph layout (canvas + toolbar)
+        plot_instructions_layout.addWidget(self.instructions_text)  # Add the instructions text panel
+
         self.plot_update_timer = QTimer(self)
         self.log_file_path = None
         self.plot_update_timer.timeout.connect(lambda: self.update_plot(self.log_file_path))
@@ -144,7 +171,7 @@ class PlotWindow(QMainWindow):
         # Add the status widget to the right side of the menu bar
         menu_bar.setCornerWidget(status_widget, Qt.TopRightCorner)
 
-    
+        # Create the gain layout
         gain_layout = QHBoxLayout()
         self.gain_inputs = {}
         for metabolite in ["Glutamate", "Glutamine", "Glucose", "Lactate"]:
@@ -166,23 +193,16 @@ class PlotWindow(QMainWindow):
         calibration_button.clicked.connect(self.open_calibration_settings)
         gain_layout.addWidget(calibration_button)
 
-        # Combine status and gain layouts into a single box layout
-        box_layout = QVBoxLayout()
-        box_layout.addLayout(gain_layout)
+        # Combine the gain layout and the horizontal plot + instructions layout
+        main_layout.addLayout(plot_instructions_layout)  # Add the combined graph + instructions layout
+        main_layout.addLayout(gain_layout)  # Add the gain layout
 
-        # Main layout with plot and controls
-        graph_layout = QVBoxLayout()
-        graph_layout.addWidget(self.canvas)
-        graph_layout.addWidget(self.nav_toolbar)
-        graph_layout.addLayout(box_layout)
-
-        # Set up the central widget with main layout
+        # Set the central widget for the window
         central_widget = QWidget()
-        central_widget.setLayout(graph_layout)
+        central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
 
         self.update_plot()
-
 
     def start_datalogger(self):
         """Start the data logger in a separate thread with automatic logging."""
@@ -593,8 +613,8 @@ class AMUZAGUI(QWidget):
 
         # Set up the window
         self.setWindowTitle("AMUZA Controller")
-        self.setGeometry(100, 100, 900, 400)
-        self.setFixedSize(900, 500) #Prevents the window from being resized 
+        self.setGeometry(100, 100, 1250, 400)
+        self.setFixedSize(1250, 500) #Prevents the window from being resized 
 
         # Main layout - Horizontal
         self.main_layout = QHBoxLayout(self)
@@ -685,9 +705,27 @@ class AMUZAGUI(QWidget):
         self.is_dragging = False
 
         self.setup_well_plate()
-
+        # Instructions panel (right side)
+        self.instructions_panel = QTextEdit(self)
+        self.instructions_panel.setReadOnly(True)
+        self.instructions_panel.setFixedWidth(350)  # Adjust width as needed
+        self.instructions_panel.setStyleSheet("background-color: #F7F7F7; border: 1px solid #D0D0D0;")
+        self.instructions_panel.setText(
+            "Instructions:\n"
+            "1. Connect to AMUZA using the 'Connect to AMUZA' button.\n"
+            "2. Use 'EJECT' to remove the tray from inside the AMUZA and 'INSERT' to insert it.\n"
+            "3. Select the well sampling area by clicking and dragging across the figure.\n"
+            "4. Click Runplate to sample the selected wells in a combing sequence as displayed"
+            "4. Select individual wells by Ctrl+Click for MOVE.\n"
+            "5. Click 'MOVE' to move to the selected wells in alphabetical order.\n"
+            "6. Use the 'Settings' button to adjust sampling and buffer rest times.\n"
+            "7. Click 'Start DataLogger' to begin data logging.\n"
+            "8. Clear well selections using the 'Clear' button at the bottom of the well plate.\n"
+            "9. Review messages and logs in the display panel."
+        )
         # Add the well plate layout to the main layout (on the right side)
         self.main_layout.addLayout(self.plate_layout)
+        self.main_layout.addWidget(self.instructions_panel)
 
         # Set the layout for the QWidget
         self.setLayout(self.main_layout)
@@ -941,7 +979,6 @@ class AMUZAGUI(QWidget):
         else:
             ctrl_selected_wells.add(well_id)
             label.ctrl_select()
-
 
 # Start the application
 if __name__ == '__main__':
