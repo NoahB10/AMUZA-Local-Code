@@ -87,10 +87,10 @@ class PlotWindow(QMainWindow):
         }
 
         # Calibration values
-        self.calibration_glutamate = 0.0
-        self.calibration_glutamine = 0.0
-        self.calibration_glucose = 0.0
-        self.calibration_lactate = 0.0
+        self.calibration_glutamate = 1.0
+        self.calibration_glutamine = 1.0
+        self.calibration_glucose = 1.0
+        self.calibration_lactate = 1.0
 
         main_layout = QVBoxLayout()
 
@@ -112,12 +112,22 @@ class PlotWindow(QMainWindow):
         self.instructions_text.setStyleSheet("background-color: #F7F7F7; border: 1px solid #D0D0D0;")
         self.instructions_text.setText(
         "Plot Instructions:\n"
-        "1. Load data using 'Load New' from the File menu.\n"
-        "2. Click 'Start Record' to begin logging data.\n"
-        "3. Adjust gain values in the fields below the plot.\n"
-        "4. Use the toolbar for zooming and panning."
+        "1. Connect the Sensor:\n"
+        "    o Click 'Sensor' at the top and 'Connect' \n""\n"
+        "    o Select which port it is plugged into and 'Connect' \n""\n"
+        "Connecting the Sensor will automatical log data readings into a file under folder called sensor readings.\n""\n"
+        "Clicking the 'Connect/Disconnect when Connected will Disconnect the Sensor'\n""\n"
+        "2. Click 'Start Record' to save the data to a specific file.\n""\n"
+        "3. Calibrate the Gain Values:\n"
+        "    o Click 'Calibration Settings' at the bottom right \n""\n"
+        "    o Set the expected concentration values [mM] for each metabolite \n""\n"
+        "    o Run the calibration fluid in the system and wait for the values to steady. \n""\n"
+        "    o Click 'Sensor' then 'Calibrate' to update the gain\n""\n"
+        "4. Use 'File' and 'Open' to load a saved graph. \n""\n"
+        "5. Use the toolbar for zooming and panning.\n""\n"
+        "6. Modify the gain values at the bottom for quick changes to the plot"
         )
-        self.instructions_text.setFixedWidth(200)
+        self.instructions_text.setFixedWidth(300)
 
         # Create a horizontal layout to hold the graph and instructions side by side
         plot_instructions_layout = QHBoxLayout()
@@ -134,7 +144,7 @@ class PlotWindow(QMainWindow):
         
         # File Menu
         file_menu = menu_bar.addMenu("File")
-        load_action = QAction("Load New", self)
+        load_action = QAction("Load Saved", self)
         load_action.triggered.connect(self.load_file)
         file_menu.addAction(load_action)
         save_action = QAction("Save As", self)
@@ -143,7 +153,7 @@ class PlotWindow(QMainWindow):
 
         # Sensor Menu
         sensor_menu = menu_bar.addMenu("Sensor")
-        connect_action = QAction("Connect", self)
+        connect_action = QAction("Connect/Disconnect", self)
         connect_action.triggered.connect(self.connect_to_sensor)
         sensor_menu.addAction(connect_action)
 
@@ -223,7 +233,6 @@ class PlotWindow(QMainWindow):
         except Exception as e:
             print(f"Error during data logging: {str(e)}")
 
-
     def update_plot(self, file_path=None):
             """Update the plot with data from the specified file or show default if no file is provided."""
             if file_path is None:
@@ -298,7 +307,6 @@ class PlotWindow(QMainWindow):
                 # Apply tight layout
                 self.figure.subplots_adjust(top=0.955, bottom=0.066, left=0.079, right=0.990)
                 self.canvas.draw()
-
 
     def calibrate_sensors(self):
         """Perform calibration of the sensors based on current data values."""
@@ -452,38 +460,48 @@ class PlotWindow(QMainWindow):
         except Exception as e:
             print(f"Error while writing record data: {str(e)}")
 
-
     def connect_to_sensor(self):
-        """Open a dialog to select a COM port and connect to the sensor."""
-        ports = [port.device for port in list_ports.comports()]
-        if not ports:
-            QMessageBox.warning(self, "No Ports Found", "No COM ports are available.")
-            return
+        """Toggle between connecting and disconnecting the sensor."""
+        if self.connection_status:  # If already connected, disconnect
+            """Disconnect from the sensor and update the status label."""
+            try:
+                if self.serial_connection:
+                    self.serial_connection.close()
+                self.serial_connection = None
+                self.connection_status = False
+                self.status_label.setText("Disconnected")  # Update status label
+                QMessageBox.information(self, "Disconnected", "Sensor disconnected successfully.")
+            except Exception as e:
+                QMessageBox.critical(self, "Disconnection Error", f"Failed to disconnect: {str(e)}")
+        else:
+            ports = [port.device for port in list_ports.comports()]
+            if not ports:
+                QMessageBox.warning(self, "No Ports Found", "No COM ports are available.")
+                return
 
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Select COM Port")
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Select COM Port")
 
-        layout = QVBoxLayout()
-        port_selector = QComboBox()
-        port_selector.addItems(ports)
-        layout.addWidget(QLabel("Available COM Ports:"))
-        layout.addWidget(port_selector)
+            layout = QVBoxLayout()
+            port_selector = QComboBox()
+            port_selector.addItems(ports)
+            layout.addWidget(QLabel("Available COM Ports:"))
+            layout.addWidget(port_selector)
 
-        connect_button = QPushButton("Connect")
-        connect_button.clicked.connect(lambda: self.establish_connection(dialog, port_selector.currentText()))
-        layout.addWidget(connect_button)
+            connect_button = QPushButton("Connect")
+            connect_button.clicked.connect(lambda: self.establish_connection(dialog, port_selector.currentText()))
+            layout.addWidget(connect_button)
 
-        dialog.setLayout(layout)
-        dialog.exec_()
+            dialog.setLayout(layout)
+            dialog.exec_()
         
-
     def establish_connection(self, dialog, selected_port):
         """Establish a connection to the selected COM port and start continuous logging and plotting."""
         try:
             self.serial_connection = serial.Serial(selected_port, baudrate=9600, timeout=1)
             self.selected_port = selected_port
             self.connection_status = True
-            self.status_label.setText("Connected")
+            self.status_label.setText("Connected")  # Update status label
             dialog.accept()
 
             print(f"Connected to COM port: {self.selected_port}")
@@ -503,7 +521,7 @@ class PlotWindow(QMainWindow):
             QMessageBox.information(self, "Info", "Connected to sensor and started logging and plotting.")
         except serial.SerialException as e:
             QMessageBox.critical(self, "Connection Error", f"Could not connect to {selected_port}.\nError: {e}")
-            self.status_label.setText("Disconnected")
+            self.status_label.setText("Disconnected")  # Ensure status is reset
             self.selected_port = None
 
     def update_gain_values(self):
@@ -575,7 +593,7 @@ class CalibrationSettingsDialog(QDialog):
         # Calibration input fields for each metabolite
         self.calibration_inputs = {}
         for metabolite in ["Glutamate", "Glutamine", "Glucose", "Lactate"]:
-            label = QLabel(f"{metabolite} Calibration:")
+            label = QLabel(f"{metabolite} [mM]")
             input_field = QLineEdit()
 
             # Set the input field to the current calibration value
@@ -712,17 +730,19 @@ class AMUZAGUI(QWidget):
         self.instructions_panel.setStyleSheet("background-color: #F7F7F7; border: 1px solid #D0D0D0;")
         self.instructions_panel.setText(
             "Instructions:\n"
-            "1. Connect to AMUZA using the 'Connect to AMUZA' button.\n"
-            "2. Use 'EJECT' to remove the tray from inside the AMUZA and 'INSERT' to insert it.\n"
-            "3. Select the well sampling area by clicking and dragging across the figure.\n"
-            "4. Click Runplate to sample the selected wells in a combing sequence as displayed"
-            "4. Select individual wells by Ctrl+Click for MOVE.\n"
-            "5. Click 'MOVE' to move to the selected wells in alphabetical order.\n"
-            "6. Use the 'Settings' button to adjust sampling and buffer rest times.\n"
-            "7. Click 'Start DataLogger' to begin data logging.\n"
-            "8. Clear well selections using the 'Clear' button at the bottom of the well plate.\n"
+            "1. Connect to AMUZA using the 'Connect to AMUZA' button.\n""\n"
+            "2. Use 'EJECT' to remove the tray from inside the AMUZA and 'INSERT' to insert it.\n""\n"
+            "3. Select the well sampling area by clicking and dragging across the figure. ('Clear' clears the selection)\n""\n"
+            "4. Use 'RUNPLATE' to sample the selected wells (blue) in a combing sequence as displayed.\n""\n"
+            "5. Select individual wells by Ctrl+Click for 'MOVE'.\n""\n"
+            "6. Use 'MOVE' to sample the selected wells (green) in order.\n""\n"
+            "7. Use 'Settings' to adjust sampling and buffer rest times.\n""\n"
+            "8. Use 'Start DataLogger' to open up the plotting window.\n""\n"
             "9. Review messages and logs in the display panel."
+            "\n""\n""\n""\n""\n""\n""\n" 
+            "Coded By: Noah Bernten         Noah.Bernten@mail.huji.ac.il"
         )
+    
         # Add the well plate layout to the main layout (on the right side)
         self.main_layout.addLayout(self.plate_layout)
         self.main_layout.addWidget(self.instructions_panel)
@@ -788,7 +808,6 @@ class AMUZAGUI(QWidget):
             }
         """
         button.setStyleSheet(rounded_button_style)
-
 
     def on_runplate(self):
         """Display the selected wells for RUNPLATE in the console and display screen."""
@@ -904,7 +923,6 @@ class AMUZAGUI(QWidget):
         for button in buttons:
             button.setEnabled(True)
             self.apply_button_style(button)
-
 
     def on_insert(self):
         if connection is None:
