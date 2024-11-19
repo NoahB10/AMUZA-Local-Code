@@ -223,10 +223,10 @@ class PlotWindow(QMainWindow):
         """Run the data logger, save data to file, and log updates to the command line."""
         try:
             print(f"Starting data logger on COM port: {self.selected_port}")
-            DataLogger = PotentiostatReader(com_port=self.selected_port, baud_rate=9600, timeout=0.5, output_filename=file_path)
+            self.DataLogger = PotentiostatReader(com_port=self.selected_port, baud_rate=9600, timeout=0.5, output_filename=file_path)
             with open(file_path, "w") as file:
                 while self.connection_status:
-                    self.data_list = DataLogger.run()
+                    self.data_list = self.DataLogger.run()
                     QTimer.singleShot(0, lambda: self.update_plot(file_path))
                     print(f"Logged data {self.data_list}")
                     time.sleep(sample_rate)
@@ -258,14 +258,18 @@ class PlotWindow(QMainWindow):
                 # Implement the file loading logic specific to your file structure
                 with open(file_path, "r", newline="") as file:
                     lines = file.readlines()
+                    
+                if len(lines) < 4:  # Ensure there is enough data for processing
+                    print("Insufficient data in log file.")
+                    return
+                
                 data = [line.strip().split("\t") for line in lines]
                 df = pd.DataFrame(data)
                 df = df.loc[:, :8]
                 new_header = df.iloc[1]
                 df = df[3:]
                 df.columns = new_header
-
-                    
+                   
                 #Remove comments at the end if they appear
                 index = []
                 for i in range(3, len(df) + 2):
@@ -469,6 +473,7 @@ class PlotWindow(QMainWindow):
                     self.serial_connection.close()
                 self.serial_connection = None
                 self.connection_status = False
+                self.DataLogger.close_serial_connection()
                 self.status_label.setText("Disconnected")  # Update status label
                 QMessageBox.information(self, "Disconnected", "Sensor disconnected successfully.")
             except Exception as e:
