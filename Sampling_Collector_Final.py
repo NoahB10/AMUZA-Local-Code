@@ -67,7 +67,6 @@ class WellLabel(QLabel):
 
 class PlotWindow(QMainWindow):
     """Window for displaying and saving sensor data in real-time with automatic logging."""
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Data Plot")
@@ -136,7 +135,7 @@ class PlotWindow(QMainWindow):
 
         self.plot_update_timer = QTimer(self)
         self.log_file_path = None
-        self.plot_update_timer.timeout.connect(lambda: self.update_plot(self.log_file_path))
+        self.plot_update_timer.timeout.connect(lambda: self.plot_continuous(self.log_file_path))
         self.plot_update_interval = 3000
 
         # Set up the menu bar with "File" and "Sensor" dropdown menus
@@ -212,12 +211,7 @@ class PlotWindow(QMainWindow):
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
 
-        self.update_plot()
-
-    def start_datalogger(self):
-        """Start the data logger in a separate thread with automatic logging."""
-        self.is_recording = True
-        self.current_plot_type = "record"  # Set the plot type to record
+        self.default_plot()
 
     def run_datalogger(self, file_path):
         """Run the data logger, save data to file, and log updates to the command line."""
@@ -227,85 +221,135 @@ class PlotWindow(QMainWindow):
             self.DataLogger.run()
         except Exception as e:
             print(f"Error during data logging: {str(e)}")
+    
+    def default_plot(self):
+        # Show default sine wave plot
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+        x = np.linspace(0, 10, 100)
+        y = np.sin(x)
+        ax.plot(x, y, label="Default Sine Wave")
+        ax.set_xlabel("X-axis")
+        ax.set_ylabel("Y-axis")
+        ax.set_title("Default Plot: Sine Wave")
+        ax.legend()
+        ax.grid(True)
+        self.current_plot_type = "default"  # Set the plot type to default
+        self.figure.subplots_adjust(top=0.955, bottom=0.066, left=0.079, right=0.990)
+        self.canvas.draw()
 
-    def update_plot(self, file_path=None):
-            """Update the plot with data from the specified file or show default if no file is provided."""
-            if file_path is None:
-                # Show default sine wave plot
-                self.figure.clear()
-                ax = self.figure.add_subplot(111)
-                x = np.linspace(0, 10, 100)
-                y = np.sin(x)
-                ax.plot(x, y, label="Default Sine Wave")
-                ax.set_xlabel("X-axis")
-                ax.set_ylabel("Y-axis")
-                ax.set_title("Default Plot: Sine Wave")
-                ax.legend()
-                ax.grid(True)
-                self.current_plot_type = "default"  # Set the plot type to default
-                self.figure.subplots_adjust(top=0.955, bottom=0.066, left=0.079, right=0.990)
-                self.canvas.draw()
-            else:
-                # Process loaded file or recorded data file
-                self.figure.clear()
-                self.current_plot_type = "load" if file_path == self.loaded_file_path else "record"
+    def plot_start(self, file_path=None):
+        if file_path is None or not os.path.exists(file_path):
+            print("Invalid file path.")
+            return
 
-                # Implement the file loading logic specific to your file structure
-                with open(file_path, "r", newline="") as file:
-                    lines = file.readlines()
-                    
-                if len(lines) < 4:  # Ensure there is enough data for processing
-                    print("Insufficient data in log file.")
-                    return
-                
-                data = [line.strip().split("\t") for line in lines]
-                df = pd.DataFrame(data)
-                df = df.loc[:, :8]
-                new_header = df.iloc[1]
-                df = df[3:]
-                df.columns = new_header
-                   
-                #Remove comments at the end if they appear
-                index = []
-                for i in range(3, len(df) + 2):
-                    a = df.loc[i, "counter"]
-                    if not a.isdigit():
-                        index.append(i)
-                        break
+        with open(file_path, "r", newline="") as file:
+            lines = file.readlines()
 
-                if len(index):
-                    df2 = df.loc[0 : index[0] - 1, :]
-                    df2 = df2.apply(pd.to_numeric)
-                else:
-                    df2 = df.apply(pd.to_numeric)
+        if len(lines) < 4:  # Ensure there is enough data for processing
+            print("Insufficient data in log file.")
+            return
 
-                glutamate = df2["#1ch1"] - df2["#1ch2"]
-                glutamine = df2["#1ch3"] - df2["#1ch1"]
-                glucose = df2["#1ch5"] - df2["#1ch4"]
-                lactate = df2["#1ch6"] - df2["#1ch4"]
+        data = [line.strip().split("\t") for line in lines]
+        df = pd.DataFrame(data)
+        df = df.loc[:, :8]
+        self.new_header = df.iloc[1]
+        df = df[3:]
+        df.columns = self.new_header
 
-                results = pd.DataFrame({
-                    "Glutamate": glutamate * self.gain_values["Glutamate"],
-                    "Glutamine": glutamine * self.gain_values["Glutamine"],
-                    "Glucose": glucose * self.gain_values["Glucose"],
-                    "Lactate": lactate * self.gain_values["Lactate"],
-                })
+        # Remove comments at the end if they appear
+        index = []
+        for i in range(3, len(df) + 2):
+            a = df.loc[i, "counter"]
+            if not a.isdigit():
+                index.append(i)
+                break
 
-                ax = self.figure.add_subplot(111)
-                for column in results.columns:
-                    ax.plot(df2["t[min]"], results[column], label=column)
+        if len(index):
+            df2 = df.loc[0:index[0] - 1, :]
+            df2 = df2.apply(pd.to_numeric)
+        else:
+            df2 = df.apply(pd.to_numeric)
 
-                ax.set_xlabel("Time (minutes)")
-                ax.set_ylabel("mA")
-                ax.set_title("Time Series Data for Selected Channels")
-                ax.legend()
-                ax.grid(True)
-                ax.xaxis.set_major_locator(MaxNLocator(nbins=12))
-                ax.yaxis.set_major_locator(MaxNLocator(nbins=12))
+        # Save the starting dataset and initialize last processed line
+        self.data = df2
+        self.last_processed_line = len(df2)
 
-                # Apply tight layout
-                self.figure.subplots_adjust(top=0.955, bottom=0.066, left=0.079, right=0.990)
-                self.canvas.draw()
+        # Initialize the plot
+        self.figure.clear()
+        self.ax = self.figure.add_subplot(111)
+        self.plot_lines = {}  # Dictionary to store plot line references
+
+        # Pass the initial dataset to update_plot for plotting
+        self.update_plot(df2, initialize=True)
+
+    def plot_continuous(self, file_path=None):
+        """Update the plot with new data added to the file."""
+        if file_path is None or not os.path.exists(file_path):
+            print("Invalid file path.")
+            return
+
+        with open(file_path, "r", newline="") as file:
+            lines = file.readlines()
+
+        # Read new lines only
+        data = [line.strip().split("\t") for line in lines[self.last_processed_line:]]
+        if not data:
+            return  # No new data to process
+
+        try:
+            df = pd.DataFrame(data)
+            df = df.loc[:, :8]
+            df.columns = self.new_header
+            df = df.apply(pd.to_numeric, errors='coerce')
+
+            # Update the last processed line
+            self.last_processed_line += len(data)
+
+            # Append new data to the existing dataset
+            self.data = pd.concat([self.data, df], ignore_index=True)
+
+            # Pass the new data to update_plot
+            self.update_plot(self.data)
+        except Exception as e:
+            print(f"Error processing new data: {e}")
+
+    def update_plot(self, df2, initialize=False):
+        """Update the plot with the given dataset."""
+        # Calculate metabolites
+        metabolites = {
+            "Glutamate": df2["#1ch1"] - df2["#1ch2"],
+            "Glutamine": df2["#1ch3"] - df2["#1ch1"],
+            "Glucose": df2["#1ch5"] - df2["#1ch4"],
+            "Lactate": df2["#1ch6"] - df2["#1ch4"],
+        }
+
+        # If initializing, create the plot lines
+        if initialize:
+            for metabolite, values in metabolites.items():
+                scaled_values = values * self.gain_values[metabolite]
+                line, = self.ax.plot(df2["t[min]"], scaled_values, label=metabolite)
+                self.plot_lines[metabolite] = line  # Save reference to the line object
+
+            # Configure plot
+            self.ax.set_xlabel("Time (minutes)")
+            self.ax.set_ylabel("mA")
+            self.ax.set_title("Time Series Data for Selected Channels")
+            self.ax.legend()
+            self.ax.grid(True)
+        else:
+            # Update existing lines with new data
+            for metabolite, new_values in metabolites.items():
+                line = self.plot_lines[metabolite]
+                scaled_values = new_values * self.gain_values[metabolite]
+                line.set_xdata(np.append(line.get_xdata(), df2["t[min]"]))
+                line.set_ydata(np.append(line.get_ydata(), scaled_values))
+
+            # Adjust axis limits dynamically
+            self.ax.relim()
+            self.ax.autoscale_view()
+
+        self.canvas.draw()
 
     def calibrate_sensors(self):
         """Perform calibration of the sensors based on current data values."""
@@ -373,13 +417,12 @@ class PlotWindow(QMainWindow):
         file_path, _ = QFileDialog.getOpenFileName(self, "Open File", "", "Text Files (*.txt);;All Files (*)")
         if file_path:
             self.loaded_file_path = file_path  # Track the loaded file path
-            self.update_plot(file_path)  # Load and plot the selected file
-
+            self.plot_start(file_path)  # Use plot_start to initialize the plot
+            
     def toggle_record(self):
         """Toggle the recording state and start/stop writing data from self.data_list to the user-specified file."""
         if self.start_record_action.isChecked():
             if self.connection_status:
-                # Ensure the 'Recorded_Files' folder exists
                 recorded_folder = "Recorded_Files"
                 os.makedirs(recorded_folder, exist_ok=True)
 
@@ -392,11 +435,9 @@ class PlotWindow(QMainWindow):
                 )
 
                 if file_path:
-                    # Set the recording flag and file path
                     self.is_recording = True
                     self.current_record_file_path = file_path
 
-                    # Write the header to the file
                     with open(file_path, "w") as file:
                         created_time = datetime.now().strftime("%m/%d/%Y\t%I:%M:%S %p")
                         file.write(f"Created: {created_time}\n")
@@ -408,26 +449,21 @@ class PlotWindow(QMainWindow):
                         )
                         file.write(header)
 
-                        # Write the "Start" line
                         start_time = datetime.now().strftime("%m/%d/%Y\t%I:%M:%S %p")
                         file.write(f"Start: {start_time}\n")
 
-                    # Start a thread to write data from self.data_list to the file
                     threading.Thread(target=self.write_record_data, daemon=True).start()
-
-                    # Start the plot update timer (specific to recording)
-                    self.plot_update_timer.start(1000)  # Update every 1 second
+                    self.plot_start(file_path)  # Initialize the plot for the new recording
+                    self.plot_update_timer.start(1000)  # Update every second
                     print(f"Started recording data to: {file_path}")
                 else:
-                    # User canceled the file dialog, uncheck the record action
                     self.start_record_action.setChecked(False)
             else:
                 QMessageBox.warning(self, "Warning", "Please connect to the sensor before recording.")
                 self.start_record_action.setChecked(False)
         else:
-            # Stop recording
             self.is_recording = False
-            self.plot_update_timer.stop()  # Stop updating the plot
+            self.plot_update_timer.stop()
             print("Stopped recording data.")
 
     def write_record_data(self):
@@ -533,13 +569,10 @@ class PlotWindow(QMainWindow):
             except ValueError:
                 QMessageBox.warning(self, "Invalid Input", f"Please enter a valid number for {metabolite} gain.")
                 return
-        # Re-plot based on current mode (recording, loaded file, or default)
-        if self.loaded_file_path:
-            self.update_plot(self.loaded_file_path)
-        elif self.is_recording:
-            self.update_plot(self.default_file_path)
-        else:
-            self.update_plot()
+        # Re-plot the data with updated gains
+        if hasattr(self, "data") and not self.data.empty:
+            self.update_plot(self.data)
+
 
 class SettingsDialog(QDialog):
     """Settings window to adjust t_sampling and t_buffer."""
