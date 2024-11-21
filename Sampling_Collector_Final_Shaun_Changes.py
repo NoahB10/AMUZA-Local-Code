@@ -1,7 +1,6 @@
 import sys
 import os
 import time
-import threading
 from datetime import datetime
 import numpy as np
 import pandas as pd
@@ -11,7 +10,7 @@ from matplotlib.ticker import MaxNLocator
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas, NavigationToolbar2QT as NavigationToolbar
 import serial
 from serial.tools import list_ports
-from PyQt5.QtCore import Qt, QSize, QTimer
+from PyQt5.QtCore import Qt, QSize, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QMouseEvent
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QMainWindow, QDialog, QTextEdit, QLabel,
@@ -31,7 +30,6 @@ sample_rate = 1
 connection = None  # This will be initialized after the user clicks 'Connect'
 selected_wells = set()  # Set to store wells selected with click-and-drag (used for RUNPLATE)
 ctrl_selected_wells = set()  # Set to store wells selected with Ctrl+Click (used for MOVE)
-
 
 class WellLabel(QLabel):
 
@@ -67,7 +65,6 @@ class WellLabel(QLabel):
 
 class PlotWindow(QMainWindow):
     """Window for displaying and saving sensor data in real-time with automatic logging."""
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Data Plot")
@@ -134,11 +131,12 @@ class PlotWindow(QMainWindow):
         plot_instructions_layout.addLayout(graph_layout)  # Add the graph layout (canvas + toolbar)
         plot_instructions_layout.addWidget(self.instructions_text)  # Add the instructions text panel
 
-        self.plot_update_timer = QTimer(self)
         self.log_file_path = None
-        self.plot_update_timer.timeout.connect(lambda: self.update_plot(self.log_file_path))
-        self.plot_update_interval = 3000
-
+        self.plot_update_timer = QTimer(self)
+        self.plot_update_timer.timeout.connect(self.update_plot_timer_callback)
+        self.plot_update_interval = 10000  # Update every 3 seconds to reduce load
+        self.plot_update_timer.start(self.plot_update_interval)
+        
         # Set up the menu bar with "File" and "Sensor" dropdown menus
         menu_bar = self.menuBar()
         
@@ -212,100 +210,110 @@ class PlotWindow(QMainWindow):
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
 
-        self.update_plot()
-
-    def start_datalogger(self):
-        """Start the data logger in a separate thread with automatic logging."""
-        self.is_recording = True
-        self.current_plot_type = "record"  # Set the plot type to record
-
+    def update_plot_timer_callback(self):
+        """Timer callback to update the plot."""
+        if self.is_recording:
+            self.update_plot(self.default_file_path)
+        elif self.loaded_file_path:
+            self.update_plot(self.loaded_file_path)
+            
     def run_datalogger(self, file_path):
         """Run the data logger, save data to file, and log updates to the command line."""
         try:
             print(f"Starting data logger on COM port: {self.selected_port}")
             self.DataLogger = PotentiostatReader(com_port=self.selected_port, baud_rate=9600, timeout=0.5, output_filename=file_path)
-            self.DataLogger.run()
+            with open(file_path, "w") as file:
+                while self.connection_status:
+                    self.data_list = self.DataLogger.run()
+                    QTimer.singleShot(0, lambda: self.update_plot(file_path))
+                    print(f"Logged data {self.data_list}")
+                    # QThread.msleep(sample_rate)
         except Exception as e:
             print(f"Error during data logging: {str(e)}")
 
+    def plot_default(self):
+        """Plot the default sine wave."""
+        ax = self.figure.add_subplot(111)
+        x = np.linspace(0, 10, 100)
+        y = np.sin(x)
+        ax.plot(x, y, label="Default Sine Wave")
+        ax.set_xlabel("X-axis")
+        ax.set_ylabel("Y-axis")
+        ax.set_title("Default Plot: Sine Wave")
+        ax.legend()
+        ax.grid(True)
+        self.current_plot_type = "default"  # Set the plot type to default
+
     def update_plot(self, file_path=None):
-            """Update the plot with data from the specified file or show default if no file is provided."""
-            if file_path is None:
-                # Show default sine wave plot
-                self.figure.clear()
-                ax = self.figure.add_subplot(111)
-                x = np.linspace(0, 10, 100)
-                y = np.sin(x)
-                ax.plot(x, y, label="Default Sine Wave")
-                ax.set_xlabel("X-axis")
-                ax.set_ylabel("Y-axis")
-                ax.set_title("Default Plot: Sine Wave")
-                ax.legend()
-                ax.grid(True)
-                self.current_plot_type = "default"  # Set the plot type to default
-                self.figure.subplots_adjust(top=0.955, bottom=0.066, left=0.079, right=0.990)
-                self.canvas.draw()
-            else:
-                # Process loaded file or recorded data file
-                self.figure.clear()
-                self.current_plot_type = "load" if file_path == self.loaded_file_path else "record"
+        """Update the plot with data from the specified file or show default if no file is provided."""
+        self.figure.clear()
 
-                # Implement the file loading logic specific to your file structure
-                with open(file_path, "r", newline="") as file:
-                    lines = file.readlines()
-                    
-                if len(lines) < 4:  # Ensure there is enough data for processing
-                    print("Insufficient data in log file.")
-                    return
-                
-                data = [line.strip().split("\t") for line in lines]
-                df = pd.DataFrame(data)
-                df = df.loc[:, :8]
-                new_header = df.iloc[1]
-                df = df[3:]
-                df.columns = new_header
-                   
-                #Remove comments at the end if they appear
-                index = []
-                for i in range(3, len(df) + 2):
-                    a = df.loc[i, "counter"]
-                    if not a.isdigit():
-                        index.append(i)
-                        break
+        if file_path is None:
+            # Show default sine wave plot
+            self.plot_default()
+        else:
+            # Process loaded file or recorded data file
+            self.plot_loaded_file(file_path)
 
-                if len(index):
-                    df2 = df.loc[0 : index[0] - 1, :]
-                    df2 = df2.apply(pd.to_numeric)
-                else:
-                    df2 = df.apply(pd.to_numeric)
+        # Update the canvas
+        self.figure.subplots_adjust(top=0.955, bottom=0.066, left=0.079, right=0.990)
+        self.canvas.draw()
+    def plot_loaded_file(self, file_path):
+        """Plot data from the loaded file."""
+        self.current_plot_type = "load" if file_path == self.loaded_file_path else "record"
 
-                glutamate = df2["#1ch1"] - df2["#1ch2"]
-                glutamine = df2["#1ch3"] - df2["#1ch1"]
-                glucose = df2["#1ch5"] - df2["#1ch4"]
-                lactate = df2["#1ch6"] - df2["#1ch4"]
+        # Implement the file loading logic specific to your file structure
+        with open(file_path, "r", newline="") as file:
+            lines = file.readlines()
 
-                results = pd.DataFrame({
-                    "Glutamate": glutamate * self.gain_values["Glutamate"],
-                    "Glutamine": glutamine * self.gain_values["Glutamine"],
-                    "Glucose": glucose * self.gain_values["Glucose"],
-                    "Lactate": lactate * self.gain_values["Lactate"],
-                })
+        if len(lines) < 4:  # Ensure there is enough data for processing
+            print("Insufficient data in log file.")
+            return
 
-                ax = self.figure.add_subplot(111)
-                for column in results.columns:
-                    ax.plot(df2["t[min]"], results[column], label=column)
+        data = [line.strip().split("\t") for line in lines]
+        df = pd.DataFrame(data)
+        df = df.loc[:, :8]
+        new_header = df.iloc[1]
+        df = df[3:]
+        df.columns = new_header
 
-                ax.set_xlabel("Time (minutes)")
-                ax.set_ylabel("mA")
-                ax.set_title("Time Series Data for Selected Channels")
-                ax.legend()
-                ax.grid(True)
-                ax.xaxis.set_major_locator(MaxNLocator(nbins=12))
-                ax.yaxis.set_major_locator(MaxNLocator(nbins=12))
+        # Remove comments at the end if they appear
+        index = []
+        for i in range(3, len(df) + 2):
+            a = df.loc[i, "counter"]
+            if not a.isdigit():
+                index.append(i)
+                break
 
-                # Apply tight layout
-                self.figure.subplots_adjust(top=0.955, bottom=0.066, left=0.079, right=0.990)
-                self.canvas.draw()
+        if len(index):
+            df2 = df.loc[0: index[0] - 1, :]
+            df2 = df2.apply(pd.to_numeric)
+        else:
+            df2 = df.apply(pd.to_numeric)
+
+        glutamate = df2["#1ch1"] - df2["#1ch2"]
+        glutamine = df2["#1ch3"] - df2["#1ch1"]
+        glucose = df2["#1ch5"] - df2["#1ch4"]
+        lactate = df2["#1ch6"] - df2["#1ch4"]
+
+        results = pd.DataFrame({
+            "Glutamate": glutamate * self.gain_values["Glutamate"],
+            "Glutamine": glutamine * self.gain_values["Glutamine"],
+            "Glucose": glucose * self.gain_values["Glucose"],
+            "Lactate": lactate * self.gain_values["Lactate"],
+        })
+
+        ax = self.figure.add_subplot(111)
+        for column in results.columns:
+            ax.plot(df2["t[min]"], results[column], label=column)
+
+        ax.set_xlabel("Time (minutes)")
+        ax.set_ylabel("mA")
+        ax.set_title("Time Series Data for Selected Channels")
+        ax.legend()
+        ax.grid(True)
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=12))
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=12))
 
     def calibrate_sensors(self):
         """Perform calibration of the sensors based on current data values."""
@@ -412,8 +420,9 @@ class PlotWindow(QMainWindow):
                         start_time = datetime.now().strftime("%m/%d/%Y\t%I:%M:%S %p")
                         file.write(f"Start: {start_time}\n")
 
-                    # Start a thread to write data from self.data_list to the file
-                    threading.Thread(target=self.write_record_data, daemon=True).start()
+                    # Start the data recording thread
+                    self.data_record_thread = DataRecordThread(self.data_list, file_path)
+                    self.data_record_thread.start()
 
                     # Start the plot update timer (specific to recording)
                     self.plot_update_timer.start(1000)  # Update every 1 second
@@ -426,6 +435,9 @@ class PlotWindow(QMainWindow):
                 self.start_record_action.setChecked(False)
         else:
             # Stop recording
+            if hasattr(self, 'data_record_thread'):
+                self.data_record_thread.stop()
+                self.data_record_thread.wait()
             self.is_recording = False
             self.plot_update_timer.stop()  # Stop updating the plot
             print("Stopped recording data.")
@@ -455,21 +467,20 @@ class PlotWindow(QMainWindow):
                         # Increment the counter
                         counter += 1
 
-                    time.sleep(1)  # Adjust based on desired logging frequency
         except Exception as e:
             print(f"Error while writing record data: {str(e)}")
 
     def connect_to_sensor(self):
         """Toggle between connecting and disconnecting the sensor."""
         if self.connection_status:  # If already connected, disconnect
-            """Disconnect from the sensor and update the status label."""
             try:
-                if self.serial_connection:
-                    self.serial_connection.close()
+                self.serial_connection.close()
                 self.serial_connection = None
                 self.connection_status = False
-                self.DataLogger.close_serial_connection()
-                self.status_label.setText("Disconnected")  # Update status label
+                if hasattr(self, 'data_logger_thread'):
+                    self.data_logger_thread.stop()
+                    self.data_logger_thread.wait()
+                self.status_label.setText("Disconnected")
                 QMessageBox.information(self, "Disconnected", "Sensor disconnected successfully.")
             except Exception as e:
                 QMessageBox.critical(self, "Disconnection Error", f"Failed to disconnect: {str(e)}")
@@ -501,29 +512,27 @@ class PlotWindow(QMainWindow):
             self.serial_connection = serial.Serial(selected_port, baudrate=9600, timeout=1)
             self.selected_port = selected_port
             self.connection_status = True
-            self.status_label.setText("Connected")  # Update status label
+            self.status_label.setText("Connected")
             dialog.accept()
 
             print(f"Connected to COM port: {self.selected_port}")
 
             # Start continuous logging in a separate thread
-            logger_folder = "Sensor_Readings"
-            os.makedirs(logger_folder, exist_ok=True)
-            current_time = datetime.now()
-            filename = f"Sensor_readings_{current_time.strftime('%d_%m_%y_%H_%M')}.txt"
-            self.default_file_path = os.path.join(logger_folder, filename)
-            self.log_file_path = self.default_file_path
-            threading.Thread(target=self.run_datalogger, args=(self.default_file_path,), daemon=True).start()
+            self.data_logger_thread = DataLoggerThread(self.selected_port, sample_rate)
+            self.data_logger_thread.data_logged.connect(self.handle_logged_data)
+            self.data_logger_thread.start()
 
-            # Start updating the plot from the log file immediately
-            self.plot_update_timer.start(self.plot_update_interval)
-
-            QMessageBox.information(self, "Info", "Connected to sensor and started logging and plotting.")
+            QMessageBox.information(self, "Info", "Connected to sensor and started logging.")
         except serial.SerialException as e:
             QMessageBox.critical(self, "Connection Error", f"Could not connect to {selected_port}.\nError: {e}")
-            self.status_label.setText("Disconnected")  # Ensure status is reset
+            self.status_label.setText("Disconnected")
             self.selected_port = None
 
+    def handle_logged_data(self, data_list):
+        """Handle data received from the DataLoggerThread."""
+        self.data_list = data_list
+        # Update plot here or store the data for periodic plotting
+        
     def update_gain_values(self):
         """Update gain values based on user input and re-plot the data."""
         for metabolite, input_field in self.gain_inputs.items():
@@ -900,6 +909,12 @@ class AMUZAGUI(QWidget):
         self.plot_window = PlotWindow(self)
         self.plot_window.show()
 
+        if self.plot_window.loaded_file_path:
+            self.plot_window.update_plot(self.plot_window.loaded_file_path)
+        else:
+            self.plot_window.update_plot(self.plot_window.default_file_path)
+        
+
     def connect_to_amuza(self):
         """Connect to the AMUZA system."""
         global connection
@@ -997,6 +1012,62 @@ class AMUZAGUI(QWidget):
         else:
             ctrl_selected_wells.add(well_id)
             label.ctrl_select()
+
+class DataRecordThread(QThread):
+    def __init__(self, data_list, record_file_path, parent=None):
+        super().__init__(parent)
+        self.data_list = data_list
+        self.record_file_path = record_file_path
+        self.recording = True
+
+    def run(self):
+        try:
+            with open(self.record_file_path, "a") as file:
+                counter = 1
+                start_time = time.time()
+
+                while self.recording:
+                    if self.data_list:
+                        # Calculate elapsed time in minutes
+                        elapsed_time = (time.time() - start_time) / 60
+                        elapsed_time_str = f"{elapsed_time:.3f}"
+                        data_str = "\t".join(map(str, self.data_list))
+                        line = f"{counter}\t{elapsed_time_str}\t{data_str}\n"
+                        file.write(line)
+                        file.flush()
+                        counter += 1
+                    self.msleep(1000)  # Record every 1 second
+        except Exception as e:
+            print(f"Error while writing record data: {str(e)}")
+
+    def stop(self):
+        self.recording = False
+
+class DataLoggerThread(QThread):
+    data_logged = pyqtSignal(list)  # Signal to emit the data to the main thread
+    def __init__(self, selected_port, sample_rate, parent=None):
+        super().__init__(parent)
+        self.selected_port = selected_port
+        self.sample_rate = sample_rate
+        self.connection_status = True
+        self.data_logger = None
+
+    def run(self):
+        try:
+            print(f"Starting data logger on COM port: {self.selected_port}")
+            self.data_logger = PotentiostatReader(com_port=self.selected_port, baud_rate=9600, timeout=0.5)
+            while self.connection_status:
+                # Run the data logger and emit the data
+                data_list = self.data_logger.run()
+                self.data_logged.emit(data_list)  # Emit the data to the main thread
+                self.msleep(self.sample_rate * 1000)  # Non-blocking sleep
+        except Exception as e:
+            print(f"Error during data logging: {str(e)}")
+
+    def stop(self):
+        self.connection_status = False
+        if self.data_logger:
+            self.data_logger.close_serial_connection()
 
 # Start the application
 if __name__ == '__main__':
