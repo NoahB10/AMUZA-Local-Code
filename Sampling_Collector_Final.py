@@ -137,7 +137,7 @@ class PlotWindow(QMainWindow):
         self.plot_update_timer = QTimer(self)
         self.log_file_path = None
         self.plot_update_timer.timeout.connect(lambda: self.plot_continuous(self.log_file_path))
-        self.plot_update_interval = 3000
+        self.plot_update_interval = 1000
 
         # Set up the menu bar with "File" and "Sensor" dropdown menus
         menu_bar = self.menuBar()
@@ -287,9 +287,9 @@ class PlotWindow(QMainWindow):
 
         with open(file_path, "r", newline="") as file:
             # Read new lines only using islice
-            print(self.last_processed_line)
+
             data = [line.strip().split("\t") for line in islice(file, self.last_processed_line, None)]
-            print(data)
+
         if not data:
             return  # No new data to process
         try:
@@ -347,7 +347,7 @@ class PlotWindow(QMainWindow):
             self.ax.relim()
             self.ax.autoscale_view()
 
-        self.canvas.draw()
+        self.canvas.draw_idle()
 
     def calibrate_sensors(self):
         """Perform calibration of the sensors based on current data values."""
