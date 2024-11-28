@@ -211,7 +211,7 @@ class PlotWindow(QMainWindow):
         central_widget = QWidget()
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
-
+        self.last_processed_line = 0
         self.default_plot()
 
     def run_datalogger(self, file_path):
@@ -242,14 +242,14 @@ class PlotWindow(QMainWindow):
     def plot_start(self, file_path=None):
         if file_path is None or not os.path.exists(file_path):
             print("Invalid file path.")
-            return 0
+            return 
 
         with open(file_path, "r", newline="") as file:
             lines = file.readlines()
 
         if len(lines) < 4:  # Ensure there is enough data for processing
             print("Insufficient data in log file.")
-            return 0
+            return 
 
         data = [line.strip().split("\t") for line in lines]
         df = pd.DataFrame(data)
@@ -273,7 +273,7 @@ class PlotWindow(QMainWindow):
             df2 = df.apply(pd.to_numeric)
 
         # Save the starting dataset and initialize last processed line
-        self.last_processed_line = len(df2)
+        self.last_processed_line = len(data)
 
         # Initialize the plot
         self.figure.clear()
@@ -282,7 +282,7 @@ class PlotWindow(QMainWindow):
 
         # Pass the initial dataset to update_plot for plotting
         self.update_plot(df2, initialize=True)
-        return 1
+
 
     def plot_continuous(self, file_path=None):
         """Update the plot with new data added to the file."""
@@ -292,11 +292,11 @@ class PlotWindow(QMainWindow):
 
         with open(file_path, "r", newline="") as file:
             # Read new lines only using islice
+            print(self.last_processed_line)
             data = [line.strip().split("\t") for line in islice(file, self.last_processed_line, None)]
-        
+            print(data)
         if not data:
             return  # No new data to process
-        
         try:
             df = pd.DataFrame(data)
             df = df.loc[:, :8]
@@ -551,8 +551,8 @@ class PlotWindow(QMainWindow):
             self.log_file_path = self.default_file_path
             threading.Thread(target=self.run_datalogger, args=(self.default_file_path,), daemon=True).start()
             # run the plot start before continous plotting just to get it started
-            self.plot_start(self.default_file_path)
-
+            while not(self.last_processed_line):
+                self.plot_start(self.default_file_path)
             # Start updating the plot from the log file immediately
             self.plot_update_timer.start(self.plot_update_interval)
 
