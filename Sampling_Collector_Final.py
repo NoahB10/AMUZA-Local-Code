@@ -275,11 +275,6 @@ class PlotWindow(QMainWindow):
         # Save the starting dataset and initialize last processed line
         self.last_processed_line = len(data)
 
-        # Initialize the plot
-        self.figure.clear()
-        self.ax = self.figure.add_subplot(111)
-        self.plot_lines = {}  # Dictionary to store plot line references
-
         # Pass the initial dataset to update_plot for plotting
         self.update_plot(df2, initialize=True)
 
@@ -306,11 +301,8 @@ class PlotWindow(QMainWindow):
             # Update the last processed line
             self.last_processed_line += len(data)
 
-            # Append new data to the existing dataset
-            self.data = pd.concat([self.data, df], ignore_index=True)
-
             # Pass the new data to update_plot
-            self.update_plot(self.data)
+            self.update_plot(df)
         except Exception as e:
             print(f"Error processing new data: {e}")
 
@@ -326,6 +318,11 @@ class PlotWindow(QMainWindow):
 
         # If initializing, create the plot lines
         if initialize:
+            # Initialize the plot
+            self.figure.clear()
+            self.ax = self.figure.add_subplot(111)
+            self.plot_lines = {}  # Dictionary to store plot line references
+
             for metabolite, values in metabolites.items():
                 scaled_values = values * self.gain_values[metabolite]
                 line, = self.ax.plot(df2["t[min]"], scaled_values, label=metabolite)
@@ -337,6 +334,7 @@ class PlotWindow(QMainWindow):
             self.ax.set_title("Time Series Data for Selected Channels")
             self.ax.legend()
             self.ax.grid(True)
+            plt.ion() 
         else:
             # Update existing lines with new data
             for metabolite, new_values in metabolites.items():
