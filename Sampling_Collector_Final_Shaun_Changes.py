@@ -5,9 +5,7 @@ import threading
 from datetime import datetime
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-from matplotlib.ticker import MaxNLocator
 from matplotlib.animation import FuncAnimation
 from matplotlib.backends.backend_qt5agg import (
     FigureCanvasQTAgg as FigureCanvas,
@@ -179,9 +177,7 @@ class PlotWindow(QMainWindow):
             self.instructions_text
         )  # Add the instructions text panel
 
-        self.plot_update_timer = QTimer(self)
         self.log_file_path = None
-        self.plot_update_interval = 1000
 
         # Set up the menu bar with "File" and "Sensor" dropdown menus
         menu_bar = self.menuBar()
@@ -540,7 +536,6 @@ class PlotWindow(QMainWindow):
                     self.plot_start(
                         file_path
                     )  # Initialize the plot for the new recording
-                    self.plot_update_timer.start(1000)  # Update every second
                     print(f"Started recording data to: {file_path}")
                 else:
                     self.start_record_action.setChecked(False)
@@ -551,7 +546,6 @@ class PlotWindow(QMainWindow):
                 self.start_record_action.setChecked(False)
         else:
             self.is_recording = False
-            self.plot_update_timer.stop()
             print("Stopped recording data.")
 
     def write_record_data(self):
@@ -655,8 +649,6 @@ class PlotWindow(QMainWindow):
             # run the plot start before continous plotting just to get it started
             while not (self.last_processed_line):
                 self.plot_start(self.default_file_path)
-            # Start updating the plot from the log file immediately
-            self.plot_update_timer.start(self.plot_update_interval)
 
             QMessageBox.information(
                 self, "Info", "Connected to sensor and started logging and plotting."
@@ -1026,7 +1018,7 @@ class AMUZAGUI(QWidget):
         if ctrl_selected_wells:
             self.well_list = self.order(list(ctrl_selected_wells))
             self.add_to_display(f"Moving to wells: {', '.join(self.well_list)}")
-            self.add_to_display(f"Sampled: ")
+            self.add_to_display("Sampled: ")
             if connection is None:
                 QMessageBox.critical(self, "Error", "Please connect to AMUZA first!")
                 return
@@ -1136,7 +1128,6 @@ class AMUZAGUI(QWidget):
     def resizeEvent(self, event):
         """Lock the aspect ratio of the window."""
         width = event.size().width()
-        height = event.size().height()
         aspect_ratio = 9 / 4
         new_height = int(width / aspect_ratio)
         self.resize(QSize(width, new_height))
