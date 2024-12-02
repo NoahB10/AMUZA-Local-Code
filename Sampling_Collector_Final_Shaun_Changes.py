@@ -5,9 +5,7 @@ import threading
 from datetime import datetime
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-from matplotlib.ticker import MaxNLocator
 from matplotlib.animation import FuncAnimation
 from matplotlib.backends.backend_qt5agg import (
     FigureCanvasQTAgg as FigureCanvas,
@@ -179,9 +177,7 @@ class PlotWindow(QMainWindow):
             self.instructions_text
         )  # Add the instructions text panel
 
-        self.plot_update_timer = QTimer(self)
         self.log_file_path = None
-        self.plot_update_interval = 1000
 
         # Set up the menu bar with "File" and "Sensor" dropdown menus
         menu_bar = self.menuBar()
@@ -191,13 +187,15 @@ class PlotWindow(QMainWindow):
         load_action = QAction("Load Saved", self)
         load_action.triggered.connect(self.load_file)
         file_menu.addAction(load_action)
+
         save_action = QAction("Save As", self)
         save_action.triggered.connect(self.save_file)
         file_menu.addAction(save_action)
 
         # Sensor Menu
         sensor_menu = menu_bar.addMenu("Sensor")
-        connect_action = QAction("Connect/Disconnect", self)
+
+        connect_action = QAction("Connect/Disconnect", self, checkable=True)
         connect_action.triggered.connect(self.connect_to_sensor)
         sensor_menu.addAction(connect_action)
 
@@ -205,11 +203,6 @@ class PlotWindow(QMainWindow):
         mock_data_action = QAction("Mock Data Mode", self, checkable=True)
         mock_data_action.triggered.connect(self.toggle_mock_data_mode)
         sensor_menu.addAction(mock_data_action)
-
-        # Start Record action
-        self.start_record_action = QAction("Start Record", self, checkable=True)
-        self.start_record_action.triggered.connect(self.toggle_record)
-        menu_bar.addAction(self.start_record_action)
 
         # Add Calibrate action to the Sensor Menu
         calibrate_action = QAction("Calibrate", self)
@@ -263,10 +256,11 @@ class PlotWindow(QMainWindow):
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
         self.last_processed_line = 0
-        self.default_plot()
 
         # Set up FuncAnimation for continuous plotting
-        self.anim = FuncAnimation(self.figure, self.update_plot, interval=2500)
+        self.anim = FuncAnimation(
+            self.figure, self.update_plot, interval=2500, save_count=100
+        )
 
     def toggle_mock_data_mode(self):
         """Toggle mock data mode for testing."""
@@ -310,60 +304,45 @@ class PlotWindow(QMainWindow):
         except Exception as e:
             print(f"Error during data logging: {str(e)}")
 
-    def default_plot(self):
-        # Show default sine wave plot
-        self.figure.clear()
-        ax = self.figure.add_subplot(111)
-        x = np.linspace(0, 10, 100)
-        y = np.sin(x)
-        ax.plot(x, y, label="Default Sine Wave")
-        ax.set_xlabel("X-axis")
-        ax.set_ylabel("Y-axis")
-        ax.set_title("Default Plot: Sine Wave")
-        ax.legend()
-        ax.grid(True)
-        self.current_plot_type = "default"  # Set the plot type to default
-        self.figure.subplots_adjust(top=0.955, bottom=0.066, left=0.079, right=0.990)
-        self.canvas.draw()
-
-    def plot_start(self, file_path=None):
-        if file_path is None or not os.path.exists(file_path):
-            print("Invalid file path.")
-            return
-
-        with open(file_path, "r", newline="") as file:
-            lines = file.readlines()
-
-        if len(lines) < 4:  # Ensure there is enough data for processing
-            print("Insufficient data in log file.")
-            return
-
-        data = [line.strip().split("\t") for line in lines]
-        df = pd.DataFrame(data)
-        df = df.loc[:, :8]
-        self.new_header = df.iloc[1]
-        df = df[3:]
-        df.columns = self.new_header
-
-        # Remove comments at the end if they appear
-        index = []
-        for i in range(3, len(df) + 2):
-            a = df.loc[i, "counter"]
-            if not a.isdigit():
-                index.append(i)
-                break
-
-        if len(index):
-            df2 = df.loc[0 : index[0] - 1, :]
-            df2 = df2.apply(pd.to_numeric)
+    def update_initial_plot(self, df):
+        if df is None:
+            self.figure.clear()
+            ax = self.figure.add_subplot(111)
+            x = np.linspace(0, 10, 100)
+            y = np.sin(x)
+            ax.plot(x, y, label="Default Sine Wave")
+            ax.set_xlabel("X-axis")
+            ax.set_ylabel("Y-axis")
+            ax.set_title("Default Plot: Sine Wave")
+            ax.legend()
+            ax.grid(True)
+            self.current_plot_type = "default"  # Set the plot type to default
+            self.figure.subplots_adjust(
+                top=0.955, bottom=0.066, left=0.079, right=0.990
+            )
+            self.canvas.draw()
         else:
-            df2 = df.apply(pd.to_numeric)
+            # Calculate metabolites
+            metabolites = {
+                "Glutamate": df["#1ch1"] - df["#1ch2"],
+                "Glutamine": df["#1ch3"] - df["#1ch1"],
+                "Glucose": df["#1ch5"] - df["#1ch4"],
+                "Lactate": df["#1ch6"] - df["#1ch4"],
+            }
 
-        # Save the starting dataset and initialize last processed line
-        self.last_processed_line = len(data)
-
-        # Pass the initial dataset to update_plot for plotting
-        self.update_plot(df2, initialize=True)
+            self.figure.clear()
+            ax = self.figure.add_subplot(111)
+            for metabolite, values in metabolites.items():
+                scaled_values = values * self.gain_values[metabolite]
+                ax.plot(df["t[min]"], scaled_values, label=metabolite)
+            ax.set_xlabel("Time (minutes)")
+            ax.set_ylabel("mA")
+            ax.set_title("Time Series Data for Selected Channels")
+            ax.legend()
+            ax.grid(True)
+            # set to start at 0
+            ax.set_xlim(0, df["t[min]"].max())
+            self.canvas.draw_idle()
 
     def update_plot(self, frame):
         """Update the plot with the given dataset."""
@@ -499,60 +478,61 @@ class PlotWindow(QMainWindow):
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Open File", "", "Text Files (*.txt);;All Files (*)"
         )
-        if file_path:
-            self.loaded_file_path = file_path  # Track the loaded file path
-            self.plot_start(file_path)  # Use plot_start to initialize the plot
+        if not file_path:
+            print("No file selected.")
+            return
 
-    def toggle_record(self):
-        """Toggle the recording state and start/stop writing data from self.data_list to the user-specified file."""
-        if self.start_record_action.isChecked():
-            if self.connection_status:
-                recorded_folder = "Recorded_Files"
-                os.makedirs(recorded_folder, exist_ok=True)
+        if not os.path.exists(file_path):
+            print("Invalid file path.")
+            return
 
-                # Prompt the user to choose a file name
-                file_path, _ = QFileDialog.getSaveFileName(
-                    self,
-                    "Save Recorded Data",
-                    os.path.join(recorded_folder, "Sensor_readings.txt"),
-                    "Text Files (*.txt)",
-                )
+        with open(file_path, "r", newline="") as file:
+            lines = file.readlines()
 
-                if file_path:
-                    self.is_recording = True
-                    self.current_record_file_path = file_path
+        if len(lines) < 4:  # Ensure there is enough data for processing
+            print("Insufficient data in log file.")
+            # show dialog
+            QMessageBox.warning(
+                self,
+                "Insufficient Data",
+                "The selected file does not contain enough data for plotting.",
+            )
+            return
 
-                    with open(file_path, "w") as file:
-                        created_time = datetime.now().strftime("%m/%d/%Y\t%I:%M:%S %p")
-                        file.write(f"Created: {created_time}\n")
+        data = [line.strip().split("\t") for line in lines]
+        df = pd.DataFrame(data)
+        df = df.loc[:, :8]
+        self.new_header = df.iloc[1]
+        df = df[3:]
+        df.columns = self.new_header
 
-                        # Write the full header
-                        header = (
-                            "counter\tt[min]\t#1ch1\t#1ch2\t#1ch3\t#1ch4\t#1ch5\t#1ch6\t#1ch7\t#1ch8\t"
-                            "#1ch9\t#1ch10\t#1ch11\t#1ch12\t#1ch13\t#1ch14\t#1ch15\t#1ch16\n"
-                        )
-                        file.write(header)
+        # Remove comments at the end if they appear
+        index = []
+        for i in range(3, len(df) + 3):
+            a = df.loc[i, "counter"]
+            if not a.isdigit():
+                index.append(i)
+                break
 
-                        start_time = datetime.now().strftime("%m/%d/%Y\t%I:%M:%S %p")
-                        file.write(f"Start: {start_time}\n")
-
-                    threading.Thread(target=self.write_record_data, daemon=True).start()
-                    self.plot_start(
-                        file_path
-                    )  # Initialize the plot for the new recording
-                    self.plot_update_timer.start(1000)  # Update every second
-                    print(f"Started recording data to: {file_path}")
-                else:
-                    self.start_record_action.setChecked(False)
-            else:
-                QMessageBox.warning(
-                    self, "Warning", "Please connect to the sensor before recording."
-                )
-                self.start_record_action.setChecked(False)
+        if index:
+            df = df.loc[: index[0] - 1, :]
+            df = df.apply(pd.to_numeric, errors="coerce")
         else:
-            self.is_recording = False
-            self.plot_update_timer.stop()
-            print("Stopped recording data.")
+            df = df.apply(pd.to_numeric, errors="coerce")
+
+        # Save the starting dataset and initialize last processed line
+        self.last_processed_line = len(data)
+
+        # Track the loaded file path
+        self.loaded_file_path = file_path
+
+        # Set new_header appropriately if it's part of the class state
+        # (Already set above)
+
+        # Pass the initial dataset to update_plot for plotting
+        # To handle initial plotting, you can temporarily set last_processed_line to 0
+        self.last_processed_line = 0
+        self.update_initial_plot(df)
 
     def write_record_data(self):
         """Continuously write data from self.data_list into the specified record file with proper formatting."""
@@ -653,11 +633,6 @@ class PlotWindow(QMainWindow):
                 target=self.run_datalogger, args=(self.default_file_path,), daemon=True
             ).start()
             # run the plot start before continous plotting just to get it started
-            while not (self.last_processed_line):
-                self.plot_start(self.default_file_path)
-            # Start updating the plot from the log file immediately
-            self.plot_update_timer.start(self.plot_update_interval)
-
             QMessageBox.information(
                 self, "Info", "Connected to sensor and started logging and plotting."
             )
@@ -1026,7 +1001,7 @@ class AMUZAGUI(QWidget):
         if ctrl_selected_wells:
             self.well_list = self.order(list(ctrl_selected_wells))
             self.add_to_display(f"Moving to wells: {', '.join(self.well_list)}")
-            self.add_to_display(f"Sampled: ")
+            self.add_to_display("Sampled: ")
             if connection is None:
                 QMessageBox.critical(self, "Error", "Please connect to AMUZA first!")
                 return
@@ -1136,7 +1111,6 @@ class AMUZAGUI(QWidget):
     def resizeEvent(self, event):
         """Lock the aspect ratio of the window."""
         width = event.size().width()
-        height = event.size().height()
         aspect_ratio = 9 / 4
         new_height = int(width / aspect_ratio)
         self.resize(QSize(width, new_height))
