@@ -1,5 +1,6 @@
 import sys
 import os
+import asyncio
 import time
 import threading
 from datetime import datetime
@@ -41,8 +42,8 @@ from SIX_SERVER_READER import PotentiostatReader
 import AMUZA_Master
 
 # Global variables
-t_buffer = 1  # 65
-t_sampling = 10  # 91
+t_buffer = 60  # 65
+t_sampling = 90  # 91
 sample_rate = 1
 connection = None  # This will be initialized after the user clicks 'Connect'
 selected_wells = (
@@ -99,6 +100,7 @@ class PlotWindow(QMainWindow):
         self.serial_connection = None
         self.default_file_path = None
         self.loaded_file_path = None  # Keep track of the loaded file
+        self.new_header = None
         self.current_plot_type = (
             "default"  # Tracks whether we are showing "default", "record", or "load"
         )
@@ -362,10 +364,11 @@ class PlotWindow(QMainWindow):
                 return
             df = pd.DataFrame(data)
             df = df.loc[:, :8]
-            df.columns = self.new_header
+            df.columns = df.iloc[1]
             df = df.apply(pd.to_numeric, errors="coerce")
             self.last_processed_line += len(data)
-
+            
+        print(df.columns)
         # Calculate metabolites
         metabolites = {
             "Glutamate": df["#1ch1"] - df["#1ch2"],
@@ -382,6 +385,7 @@ class PlotWindow(QMainWindow):
         ax.set_xlabel("Time (minutes)")
         ax.set_ylabel("mA")
         ax.set_title("Time Series Data for Selected Channels")
+        ax.set_xlim(0, df["t[min]"].max())
         ax.legend()
         ax.grid(True)
         self.canvas.draw_idle()
@@ -991,7 +995,7 @@ class AMUZAGUI(QWidget):
                     AMUZA_Master.Sequence([AMUZA_Master.Method([loc], t_sampling)])
                 )
             # Start the Control_Move process
-            self.Control_Move(self.method, t_sampling)
+            threading.Thread(target=self.Control_Move, args=(self.method, t_sampling), daemon=True).start()
 
         else:
             self.add_to_display("No wells selected for RUNPLATE.")
@@ -1019,20 +1023,19 @@ class AMUZAGUI(QWidget):
                     AMUZA_Master.Sequence([AMUZA_Master.Method([loc], t_sampling)])
                 )
             # Start the Control_Move process
-            self.Control_Move(self.method, t_sampling)
+            threading.Thread(target=self.Control_Move, args=(self.method, t_sampling), daemon=True).start()
         else:
             self.add_to_display("No wells selected for MOVE.")
 
-    def Control_Move(self, method, duration):
-        """Control the movement through wells using QTimer for non-blocking execution."""
-        self.current_index = 0  # Track the current well index
-        self.method = method
-        self.duration = duration
 
-        # Create a QTimer for handling the well movement
-        self.move_timer = QTimer(self)
-        self.move_timer.timeout.connect(self.execute_move)
-        self.move_timer.start(t_buffer * 1000)  # Start timer with initial buffer time
+    def Control_Move(self, method, duration):
+        """Simulate movement of the AMUZA system."""
+        for i in range(0, len(method)):
+            time.sleep(t_buffer)
+            connection.Move(method[i])
+            delay = 1
+            time.sleep(duration + 9 + delay)
+            
 
     def execute_move(self):
         """Execute the move for the current well using QTimer."""
