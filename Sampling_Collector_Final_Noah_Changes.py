@@ -298,7 +298,7 @@ class PlotWindow(QMainWindow):
         except Exception as e:
             print(f"Error during data logging: {str(e)}")
 
-    def update_plot(self):
+    def update_plot(self,frame):
         #Load the default graph if not plotting or loaded file
         if not self.loaded_file_path and not self.log_file_path:
             self.figure.clear()
@@ -334,7 +334,7 @@ class PlotWindow(QMainWindow):
             df = self.generate_mock_data()
             df = self.mock_data_df
 
-        else:
+        elif self.log_file_path:
             #Process the continous data
             if not self.last_processed_line: #When it is the first time receiving data
                 with open(self.log_file_path, "r", newline="") as file:
@@ -349,7 +349,9 @@ class PlotWindow(QMainWindow):
                     data = [
                         line.strip().split("\t")
                         for line in islice(file, self.last_processed_line, None)
-                    ]
+                        ]
+        else:
+            return
         df = pd.DataFrame(data)
         df = df.loc[:, :8]
         if self.loaded_file_path or not self.last_processed_line:
