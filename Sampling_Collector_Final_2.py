@@ -1,38 +1,24 @@
 import sys
 import os
+import time
 import threading
 from datetime import datetime
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-from matplotlib.animation import FuncAnimation
-from matplotlib.backends.backend_qt5agg import (
-    FigureCanvasQTAgg as FigureCanvas,
-    NavigationToolbar2QT as NavigationToolbar,
-)
+from matplotlib.ticker import MaxNLocator
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas, NavigationToolbar2QT as NavigationToolbar
 import serial
 from itertools import islice
 from serial.tools import list_ports
 from PyQt5.QtCore import Qt, QSize, QTimer
 from PyQt5.QtGui import QMouseEvent
 from PyQt5.QtWidgets import (
-    QApplication,
-    QWidget,
-    QMainWindow,
-    QDialog,
-    QTextEdit,
-    QLabel,
-    QVBoxLayout,
-    QHBoxLayout,
-    QGridLayout,
-    QFormLayout,
-    QSpinBox,
-    QPushButton,
-    QLineEdit,
-    QFileDialog,
-    QAction,
-    QMessageBox,
-    QComboBox,
+    QApplication, QWidget, QMainWindow, QDialog, QTextEdit, QLabel,
+    QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout, QSpinBox,
+    QPushButton, QLineEdit, QFileDialog, QAction, QMessageBox,
+     QComboBox
 )
 
 # Custom Imports
@@ -40,21 +26,17 @@ from SIX_SERVER_READER import PotentiostatReader
 import AMUZA_Master
 
 # Global variables
-t_buffer = 1  # 65
-t_sampling = 10  # 91
+t_buffer = 1 #65
+t_sampling = 10 #91
 sample_rate = 1
 connection = None  # This will be initialized after the user clicks 'Connect'
-selected_wells = (
-    set()
-)  # Set to store wells selected with click-and-drag (used for RUNPLATE)
-ctrl_selected_wells = (
-    set()
-)  # Set to store wells selected with Ctrl+Click (used for MOVE)
+selected_wells = set()  # Set to store wells selected with click-and-drag (used for RUNPLATE)
+ctrl_selected_wells = set()  # Set to store wells selected with Ctrl+Click (used for MOVE)
 
 
 class WellLabel(QLabel):
-    """Custom QLabel for well plate cells that supports click-and-drag and Ctrl+Click selection."""
 
+    """Custom QLabel for well plate cells that supports click-and-drag and Ctrl+Click selection."""
     def __init__(self, well_id):
         super().__init__(well_id)
         self.well_id = well_id
@@ -84,28 +66,25 @@ class WellLabel(QLabel):
         self.ctrl_selected = False
         self.setStyleSheet("background-color: white; border: 1px solid black;")
 
-
 class PlotWindow(QMainWindow):
     """Window for displaying and saving sensor data in real-time with automatic logging."""
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Data Plot")
         self.setGeometry(200, 200, 1100, 800)
         self.data_list = []
+        self.is_recording = False
         self.connection_status = False
         self.serial_connection = None
-        self.log_file_path = None
-        self.loaded_file_path = None  # Keep track of the loaded file
+        self.loaded_file_path = None
+        self.log_file_path = None  # Keep track of the loaded file
+        self.current_plot_type = "default"  # Tracks whether we are showing "default", "record", or "load"
         self.gain_values = {
             "Glutamate": 0.97,
             "Glutamine": 0.418,
             "Glucose": 0.6854,
-            "Lactate": 0.0609,
+            "Lactate": 0.0609
         }
-
-        self.mock_data_mode = False  # Add mock data mode flag
-        self.mock_data_df = pd.DataFrame()  # Add mock data DataFrame
 
         # Calibration values
         self.calibration_glutamate = 1.0
@@ -130,73 +109,53 @@ class PlotWindow(QMainWindow):
         # Create a QTextEdit widget for instructions
         self.instructions_text = QTextEdit(self)
         self.instructions_text.setReadOnly(True)
-        self.instructions_text.setStyleSheet(
-            "background-color: #F7F7F7; border: 1px solid #D0D0D0;"
-        )
+        self.instructions_text.setStyleSheet("background-color: #F7F7F7; border: 1px solid #D0D0D0;")
         self.instructions_text.setText(
-            "Plot Instructions:\n"
-            "1. Connect the Sensor:\n"
-            "    o Click 'Sensor' at the top and 'Connect' \n"
-            "\n"
-            "    o Select which port it is plugged into and 'Connect' \n"
-            "\n"
-            "Connecting the Sensor will automatical log data readings into a file under folder called sensor readings.\n"
-            "\n"
-            "Clicking the 'Connect/Disconnect when Connected will Disconnect the Sensor'\n"
-            "\n"
-            "2. Click 'Start Record' to save the data to a specific file.\n"
-            "\n"
-            "3. Calibrate the Gain Values:\n"
-            "    o Click 'Calibration Settings' at the bottom right \n"
-            "\n"
-            "    o Set the expected concentration values [mM] for each metabolite \n"
-            "\n"
-            "    o Run the calibration fluid in the system and wait for the values to steady. \n"
-            "\n"
-            "    o Click 'Sensor' then 'Calibrate' to update the gain\n"
-            "\n"
-            "4. Use 'File' and 'Open' to load a saved graph. \n"
-            "\n"
-            "5. Use the toolbar for zooming and panning.\n"
-            "\n"
-            "6. Modify the gain values at the bottom for quick changes to the plot"
+        "Plot Instructions:\n"
+        "1. Connect the Sensor:\n"
+        "    o Click 'Sensor' at the top and 'Connect' \n""\n"
+        "    o Select which port it is plugged into and 'Connect' \n""\n"
+        "Connecting the Sensor will automatical log data readings into a file under folder called sensor readings.\n""\n"
+        "Clicking the 'Connect/Disconnect when Connected will Disconnect the Sensor'\n""\n"
+        "2. Click 'Start Record' to save the data to a specific file.\n""\n"
+        "3. Calibrate the Gain Values:\n"
+        "    o Click 'Calibration Settings' at the bottom right \n""\n"
+        "    o Set the expected concentration values [mM] for each metabolite \n""\n"
+        "    o Run the calibration fluid in the system and wait for the values to steady. \n""\n"
+        "    o Click 'Sensor' then 'Calibrate' to update the gain\n""\n"
+        "4. Use 'File' and 'Open' to load a saved graph. \n""\n"
+        "5. Use the toolbar for zooming and panning.\n""\n"
+        "6. Modify the gain values at the bottom for quick changes to the plot"
         )
         self.instructions_text.setFixedWidth(300)
 
         # Create a horizontal layout to hold the graph and instructions side by side
         plot_instructions_layout = QHBoxLayout()
-        plot_instructions_layout.addLayout(
-            graph_layout
-        )  # Add the graph layout (canvas + toolbar)
-        plot_instructions_layout.addWidget(
-            self.instructions_text
-        )  # Add the instructions text panel
+        plot_instructions_layout.addLayout(graph_layout)  # Add the graph layout (canvas + toolbar)
+        plot_instructions_layout.addWidget(self.instructions_text)  # Add the instructions text panel
 
+        self.plot_update_timer = QTimer(self)
+        self.log_file_path = None
+        self.plot_update_timer.timeout.connect(lambda: self.plot_continuous(self.log_file_path))
+        self.plot_update_interval = 1000
 
         # Set up the menu bar with "File" and "Sensor" dropdown menus
         menu_bar = self.menuBar()
-
+        
         # File Menu
         file_menu = menu_bar.addMenu("File")
         load_action = QAction("Load Saved", self)
         load_action.triggered.connect(self.load_file)
         file_menu.addAction(load_action)
-
         save_action = QAction("Save As", self)
         save_action.triggered.connect(self.save_file)
         file_menu.addAction(save_action)
 
         # Sensor Menu
         sensor_menu = menu_bar.addMenu("Sensor")
-
-        connect_action = QAction("Connect/Disconnect", self, checkable=True)
+        connect_action = QAction("Connect/Disconnect", self)
         connect_action.triggered.connect(self.connect_to_sensor)
         sensor_menu.addAction(connect_action)
-
-        # Mock Data Mode action
-        mock_data_action = QAction("Mock Data Mode", self, checkable=True)
-        mock_data_action.triggered.connect(self.toggle_mock_data_mode)
-        sensor_menu.addAction(mock_data_action)
 
         # Add Calibrate action to the Sensor Menu
         calibrate_action = QAction("Calibrate", self)
@@ -240,9 +199,7 @@ class PlotWindow(QMainWindow):
         gain_layout.addWidget(calibration_button)
 
         # Combine the gain layout and the horizontal plot + instructions layout
-        main_layout.addLayout(
-            plot_instructions_layout
-        )  # Add the combined graph + instructions layout
+        main_layout.addLayout(plot_instructions_layout)  # Add the combined graph + instructions layout
         main_layout.addLayout(gain_layout)  # Add the gain layout
 
         # Set the central widget for the window
@@ -250,56 +207,18 @@ class PlotWindow(QMainWindow):
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
         self.last_processed_line = 0
-
-        # Set up FuncAnimation for continuous plotting
-        self.anim = FuncAnimation(
-            self.figure, self.update_plot, interval=2500, save_count=100
-        )
-        self.anim.event_source.stop() #Dont want to keep updating itself when its on the default graph (only when reading from sensor)
-
-    def toggle_mock_data_mode(self):
-        """Toggle mock data mode for testing."""
-        self.mock_data_mode = not self.mock_data_mode
-        if self.mock_data_mode:
-            self.status_label.setText("Mock Data Mode")
-        else:
-            self.status_label.setText("Disconnected")
-
-    def generate_mock_data(self):
-        """Generate and append mock data for testing."""
-        # find existing time
-        if self.mock_data_df.empty:
-            t = np.linspace(0, 1, 30)
-        else:
-            last_t = self.mock_data_df["t[min]"].values[-1]
-            t = np.linspace(last_t, last_t + 1, 30)
-        new_data = {
-            "t[min]": t,
-            "#1ch1": np.sin(t),
-            "#1ch2": np.cos(t),
-            "#1ch3": np.sin(t) + np.random.normal(0, 0.1, len(t)),
-            "#1ch4": np.cos(t) + np.random.normal(0, 0.1, len(t)),
-            "#1ch5": np.sin(t) * 2,
-            "#1ch6": np.cos(t) * 2,
-        }
-        new_df = pd.DataFrame(new_data)
-        self.mock_data_df = pd.concat([self.mock_data_df, new_df], ignore_index=True)
+        self.update_plot()
 
     def run_datalogger(self, file_path):
         """Run the data logger, save data to file, and log updates to the command line."""
         try:
             print(f"Starting data logger on COM port: {self.selected_port}")
-            self.DataLogger = PotentiostatReader(
-                com_port=self.selected_port,
-                baud_rate=9600,
-                timeout=0.5,
-                output_filename=file_path,
-            )
+            self.DataLogger = PotentiostatReader(com_port=self.selected_port, baud_rate=9600, timeout=0.5, output_filename=file_path)
             self.DataLogger.run()
         except Exception as e:
             print(f"Error during data logging: {str(e)}")
 
-    def update_plot(self,frame=None):
+    def update_plot(self):
         #One function which will grab the data from the correct file and then format it and then plot 
         #There are three cases for which this is called1, startup which loads deafault, load file, and continous plot
         #Stage 1 -Load the default graph if not plotting or loaded file
@@ -393,25 +312,11 @@ class PlotWindow(QMainWindow):
         ax.grid(True)
         self.canvas.draw_idle()
 
-    def load_file(self):
-        self.anim.event_source.stop()
-        """Open a file dialog to select a file and load it into the plot."""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Open File", "", "Text Files (*.txt);;All Files (*)"
-        )
-        if not file_path:
-            print("No file selected.")
-            return
-
-        if not os.path.exists(file_path):
-            print("Invalid file path.")
-            return
-        self.loaded_file_path = file_path
-        self.last_processed_line = 0
-        self.update_plot()
-
     def calibrate_sensors(self):
         """Perform calibration of the sensors based on current data values."""
+        if not self.is_recording:
+            QMessageBox.warning(self, "Calibration Error", "Calibration can only be performed during data recording.")
+            return
         try:
             # Extract the current values from data_list
             current_glutamate = self.data_list[0] - self.data_list[1]
@@ -421,30 +326,20 @@ class PlotWindow(QMainWindow):
 
             # Update gain values based on calibration
             if self.calibration_glutamate > 0:
-                self.gain_values["Glutamate"] = (
-                    self.calibration_glutamate / current_glutamate
-                )
+                self.gain_values["Glutamate"] = self.calibration_glutamate / current_glutamate
             if self.calibration_glutamine > 0:
-                self.gain_values["Glutamine"] = (
-                    self.calibration_glutamine / current_glutamine
-                )
+                self.gain_values["Glutamine"] = self.calibration_glutamine / current_glutamine
             if self.calibration_glucose > 0:
                 self.gain_values["Glucose"] = self.calibration_glucose / current_glucose
             if self.calibration_lactate > 0:
                 self.gain_values["Lactate"] = self.calibration_lactate / current_lactate
 
-            QMessageBox.information(
-                self, "Calibration", "Calibration completed successfully."
-            )
+            QMessageBox.information(self, "Calibration", "Calibration completed successfully.")
             if self.parent:
-                self.parent.add_to_display(
-                    "Calibration completed and gain values updated."
-                )
+                self.parent.add_to_display("Calibration completed and gain values updated.")
             self.update_gain_values()
         except Exception as e:
-            QMessageBox.critical(
-                self, "Calibration Error", f"Failed to calibrate sensors: {str(e)}"
-            )
+            QMessageBox.critical(self, "Calibration Error", f"Failed to calibrate sensors: {str(e)}")
 
     def open_calibration_settings(self):
         """Open the Calibration Settings dialog."""
@@ -453,7 +348,7 @@ class PlotWindow(QMainWindow):
         if self.parent:
             self.parent.add_to_display("Calibration settings updated.")
 
-   def save_file(self):
+    def save_file(self):
         """Save a copy of the current data file to a specified location."""
         if not self.loaded_file_path:
             if not self.log_file_path: 
@@ -476,6 +371,24 @@ class PlotWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save file: {e}")
 
+
+    def load_file(self):
+        """Open a file dialog to select a file and load it into the plot."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Open File", "", "Text Files (*.txt);;All Files (*)"
+        )
+        if not file_path:
+            print("No file selected.")
+            return
+
+        if not os.path.exists(file_path):
+            print("Invalid file path.")
+            return
+        self.loaded_file_path = file_path
+        self.last_processed_line = 0
+        self.update_plot()
+
+
     def connect_to_sensor(self):
         """Toggle between connecting and disconnecting the sensor."""
         if self.connection_status:  # If already connected, disconnect
@@ -487,19 +400,13 @@ class PlotWindow(QMainWindow):
                 self.connection_status = False
                 self.DataLogger.close_serial_connection()
                 self.status_label.setText("Disconnected")  # Update status label
-                QMessageBox.information(
-                    self, "Disconnected", "Sensor disconnected successfully."
-                )
+                QMessageBox.information(self, "Disconnected", "Sensor disconnected successfully.")
             except Exception as e:
-                QMessageBox.critical(
-                    self, "Disconnection Error", f"Failed to disconnect: {str(e)}"
-                )
+                QMessageBox.critical(self, "Disconnection Error", f"Failed to disconnect: {str(e)}")
         else:
             ports = [port.device for port in list_ports.comports()]
             if not ports:
-                QMessageBox.warning(
-                    self, "No Ports Found", "No COM ports are available."
-                )
+                QMessageBox.warning(self, "No Ports Found", "No COM ports are available.")
                 return
 
             dialog = QDialog(self)
@@ -512,20 +419,16 @@ class PlotWindow(QMainWindow):
             layout.addWidget(port_selector)
 
             connect_button = QPushButton("Connect")
-            connect_button.clicked.connect(
-                lambda: self.establish_connection(dialog, port_selector.currentText())
-            )
+            connect_button.clicked.connect(lambda: self.establish_connection(dialog, port_selector.currentText()))
             layout.addWidget(connect_button)
 
             dialog.setLayout(layout)
             dialog.exec_()
-
+        
     def establish_connection(self, dialog, selected_port):
         """Establish a connection to the selected COM port and start continuous logging and plotting."""
         try:
-            self.serial_connection = serial.Serial(
-                selected_port, baudrate=9600, timeout=1
-            )
+            self.serial_connection = serial.Serial(selected_port, baudrate=9600, timeout=1)
             self.selected_port = selected_port
             self.connection_status = True
             self.status_label.setText("Connected")  # Update status label
@@ -538,22 +441,18 @@ class PlotWindow(QMainWindow):
             os.makedirs(logger_folder, exist_ok=True)
             current_time = datetime.now()
             filename = f"Sensor_readings_{current_time.strftime('%d_%m_%y_%H_%M')}.txt"
-            self.log_file_path = os.path.join(logger_folder, filename)
-            self.loaded_file_path = None #Make sure no contradiction with a loaded file
-            self.anim.event_source.start()#start automatically updating the plotting
-            threading.Thread(
-                target=self.run_datalogger, args=(self.log_file_path,), daemon=True
-            ).start()
+            self.default_file_path = os.path.join(logger_folder, filename)
+            self.log_file_path = self.default_file_path
+            threading.Thread(target=self.run_datalogger, args=(self.default_file_path,), daemon=True).start()
             # run the plot start before continous plotting just to get it started
-            QMessageBox.information(
-                self, "Info", "Connected to sensor and started logging and plotting."
-            )
+            while not(self.last_processed_line):
+                self.plot_start(self.default_file_path)
+            # Start updating the plot from the log file immediately
+            self.plot_update_timer.start(self.plot_update_interval)
+
+            QMessageBox.information(self, "Info", "Connected to sensor and started logging and plotting.")
         except serial.SerialException as e:
-            QMessageBox.critical(
-                self,
-                "Connection Error",
-                f"Could not connect to {selected_port}.\nError: {e}",
-            )
+            QMessageBox.critical(self, "Connection Error", f"Could not connect to {selected_port}.\nError: {e}")
             self.status_label.setText("Disconnected")  # Ensure status is reset
             self.selected_port = None
 
@@ -564,20 +463,14 @@ class PlotWindow(QMainWindow):
                 new_value = float(input_field.text())
                 self.gain_values[metabolite] = new_value
             except ValueError:
-                QMessageBox.warning(
-                    self,
-                    "Invalid Input",
-                    f"Please enter a valid number for {metabolite} gain.",
-                )
+                QMessageBox.warning(self, "Invalid Input", f"Please enter a valid number for {metabolite} gain.")
                 return
         # Re-plot the data with updated gains
         if hasattr(self, "data") and not self.data.empty:
             self.update_plot(self.data)
 
-
 class SettingsDialog(QDialog):
     """Settings window to adjust t_sampling and t_buffer."""
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
@@ -613,10 +506,8 @@ class SettingsDialog(QDialog):
         t_buffer = self.buffer_time_spinbox.value()
         super().accept()
 
-
 class CalibrationSettingsDialog(QDialog):
     """Dialog for adjusting calibration values for each metabolite."""
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Calibration Settings")
@@ -634,9 +525,7 @@ class CalibrationSettingsDialog(QDialog):
             input_field = QLineEdit()
 
             # Set the input field to the current calibration value
-            current_value = getattr(
-                self.parent, f"calibration_{metabolite.lower()}", 0.0
-            )
+            current_value = getattr(self.parent, f"calibration_{metabolite.lower()}", 0.0)
             input_field.setText(str(current_value))
 
             layout.addRow(label, input_field)
@@ -655,29 +544,14 @@ class CalibrationSettingsDialog(QDialog):
         if parent:
             try:
                 # Update calibration values in the parent
-                parent.calibration_glutamate = float(
-                    self.calibration_inputs["Glutamate"].text()
-                )
-                parent.calibration_glutamine = float(
-                    self.calibration_inputs["Glutamine"].text()
-                )
-                parent.calibration_glucose = float(
-                    self.calibration_inputs["Glucose"].text()
-                )
-                parent.calibration_lactate = float(
-                    self.calibration_inputs["Lactate"].text()
-                )
-                QMessageBox.information(
-                    self, "Success", "Calibration values updated successfully."
-                )
+                parent.calibration_glutamate = float(self.calibration_inputs["Glutamate"].text())
+                parent.calibration_glutamine = float(self.calibration_inputs["Glutamine"].text())
+                parent.calibration_glucose = float(self.calibration_inputs["Glucose"].text())
+                parent.calibration_lactate = float(self.calibration_inputs["Lactate"].text())
+                QMessageBox.information(self, "Success", "Calibration values updated successfully.")
             except ValueError:
-                QMessageBox.warning(
-                    self,
-                    "Invalid Input",
-                    "Please enter valid numbers for calibration values.",
-                )
+                QMessageBox.warning(self, "Invalid Input", "Please enter valid numbers for calibration values.")
         super().accept()
-
 
 class AMUZAGUI(QWidget):
     def __init__(self):
@@ -686,7 +560,7 @@ class AMUZAGUI(QWidget):
         # Set up the window
         self.setWindowTitle("AMUZA Controller")
         self.setGeometry(100, 100, 1250, 400)
-        self.setFixedSize(1250, 500)  # Prevents the window from being resized
+        self.setFixedSize(1250, 500) #Prevents the window from being resized 
 
         # Main layout - Horizontal
         self.main_layout = QHBoxLayout(self)
@@ -698,14 +572,12 @@ class AMUZAGUI(QWidget):
         self.display_screen = QTextEdit(self)
         self.display_screen.setReadOnly(True)
         self.display_screen.setFixedHeight(230)  # Set height to 160 pixels
-        self.display_screen.setVerticalScrollBarPolicy(
-            Qt.ScrollBarAlwaysOn
-        )  # Add vertical scroll bar
+        self.display_screen.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # Add vertical scroll bar
         self.command_layout.addWidget(self.display_screen)
 
         # Store display history
         self.display_history = []
-
+        
         rounded_button_style = """
             QPushButton {
                 background-color: #FDFDFD ; /* Light grey background */
@@ -724,12 +596,13 @@ class AMUZAGUI(QWidget):
             }
         """
 
-        # Connect button
+                # Connect button
         # Connect button
         self.connect_button = QPushButton("Connect to AMUZA", self)
         self.connect_button.setStyleSheet(rounded_button_style)
         self.connect_button.clicked.connect(self.connect_to_amuza)
         self.command_layout.addWidget(self.connect_button)
+
 
         # Control buttons (initially greyed out and disabled)
         self.start_datalogger_button = QPushButton("Start DataLogger", self)
@@ -782,38 +655,22 @@ class AMUZAGUI(QWidget):
         self.instructions_panel = QTextEdit(self)
         self.instructions_panel.setReadOnly(True)
         self.instructions_panel.setFixedWidth(350)  # Adjust width as needed
-        self.instructions_panel.setStyleSheet(
-            "background-color: #F7F7F7; border: 1px solid #D0D0D0;"
-        )
+        self.instructions_panel.setStyleSheet("background-color: #F7F7F7; border: 1px solid #D0D0D0;")
         self.instructions_panel.setText(
             "Instructions:\n"
-            "1. Connect to AMUZA using the 'Connect to AMUZA' button.\n"
-            "\n"
-            "2. Use 'EJECT' to remove the tray from inside the AMUZA and 'INSERT' to insert it.\n"
-            "\n"
-            "3. Select the well sampling area by clicking and dragging across the figure. ('Clear' clears the selection)\n"
-            "\n"
-            "4. Use 'RUNPLATE' to sample the selected wells (blue) in a combing sequence as displayed.\n"
-            "\n"
-            "5. Select individual wells by Ctrl+Click for 'MOVE'.\n"
-            "\n"
-            "6. Use 'MOVE' to sample the selected wells (green) in order.\n"
-            "\n"
-            "7. Use 'Settings' to adjust sampling and buffer rest times.\n"
-            "\n"
-            "8. Use 'Start DataLogger' to open up the plotting window.\n"
-            "\n"
+            "1. Connect to AMUZA using the 'Connect to AMUZA' button.\n""\n"
+            "2. Use 'EJECT' to remove the tray from inside the AMUZA and 'INSERT' to insert it.\n""\n"
+            "3. Select the well sampling area by clicking and dragging across the figure. ('Clear' clears the selection)\n""\n"
+            "4. Use 'RUNPLATE' to sample the selected wells (blue) in a combing sequence as displayed.\n""\n"
+            "5. Select individual wells by Ctrl+Click for 'MOVE'.\n""\n"
+            "6. Use 'MOVE' to sample the selected wells (green) in order.\n""\n"
+            "7. Use 'Settings' to adjust sampling and buffer rest times.\n""\n"
+            "8. Use 'Start DataLogger' to open up the plotting window.\n""\n"
             "9. Review messages and logs in the display panel."
-            "\n"
-            "\n"
-            "\n"
-            "\n"
-            "\n"
-            "\n"
-            "\n"
+            "\n""\n""\n""\n""\n""\n""\n" 
             "Coded By: Noah Bernten         Noah.Bernten@mail.huji.ac.il"
         )
-
+    
         # Add the well plate layout to the main layout (on the right side)
         self.main_layout.addLayout(self.plate_layout)
         self.main_layout.addWidget(self.instructions_panel)
@@ -853,12 +710,12 @@ class AMUZAGUI(QWidget):
         self.display_history = self.display_history[-50:]
         # Display the history in the QTextEdit
         self.display_screen.setPlainText("\n".join(self.display_history))
-
+    
     def order(self, well_positions):
         """Orders the selction sequence to run from A1 to A12 down till G12"""
         sorted_well_positions = sorted(well_positions, key=lambda x: (x[0], int(x[1:])))
         return sorted_well_positions
-
+    
     def apply_button_style(self, button):
         """Reapply the custom rounded style to the button."""
         rounded_button_style = """
@@ -884,9 +741,7 @@ class AMUZAGUI(QWidget):
         """Display the selected wells for RUNPLATE in the console and display screen."""
         if selected_wells:
             self.well_list = self.order(list(selected_wells))
-            self.add_to_display(
-                f"Running Plate on wells: {', '.join(self.well_list)}\nSampled:"
-            )
+            self.add_to_display(f"Running Plate on wells: {', '.join(self.well_list)}\nSampled:")
             if connection is None:
                 QMessageBox.critical(self, "Error", "Please connect to AMUZA first!")
                 return
@@ -899,9 +754,7 @@ class AMUZAGUI(QWidget):
             locations = connection.well_mapping(self.well_list)
             for loc in locations:
                 # Append the method sequence for each location
-                self.method.append(
-                    AMUZA_Master.Sequence([AMUZA_Master.Method([loc], t_sampling)])
-                )
+                self.method.append(AMUZA_Master.Sequence([AMUZA_Master.Method([loc], t_sampling)]))
             # Start the Control_Move process
             self.Control_Move(self.method, t_sampling)
 
@@ -913,13 +766,13 @@ class AMUZAGUI(QWidget):
         if ctrl_selected_wells:
             self.well_list = self.order(list(ctrl_selected_wells))
             self.add_to_display(f"Moving to wells: {', '.join(self.well_list)}")
-            self.add_to_display("Sampled: ")
+            self.add_to_display(f"Sampled: ")
             if connection is None:
                 QMessageBox.critical(self, "Error", "Please connect to AMUZA first!")
                 return
             # Reset method list
             self.method = []
-
+            
             # Adjust temperature before moving
             connection.AdjustTemp(6)
 
@@ -927,9 +780,7 @@ class AMUZAGUI(QWidget):
             locations = connection.well_mapping(self.well_list)
             for loc in locations:
                 # Append the method sequence for each location
-                self.method.append(
-                    AMUZA_Master.Sequence([AMUZA_Master.Method([loc], t_sampling)])
-                )
+                self.method.append(AMUZA_Master.Sequence([AMUZA_Master.Method([loc], t_sampling)]))
             # Start the Control_Move process
             self.Control_Move(self.method, t_sampling)
         else:
@@ -961,9 +812,7 @@ class AMUZAGUI(QWidget):
             self.display_screen.moveCursor(self.display_screen.textCursor().End)
             # Increment the index and set a delay before the next move
             self.current_index += 1
-            self.move_timer.setInterval(
-                (self.duration + 9) * 1000
-            )  # Set interval for duration + delay
+            self.move_timer.setInterval((self.duration + 9) * 1000)  # Set interval for duration + delay
         else:
             # Stop the timer when all wells have been processed
             self.move_timer.stop()
@@ -996,11 +845,8 @@ class AMUZAGUI(QWidget):
     def enable_control_buttons(self):
         """Enable the control buttons after successful connection."""
         buttons = [
-            self.start_datalogger_button,
-            self.insert_button,
-            self.eject_button,
-            self.runplate_button,
-            self.move_button,
+            self.start_datalogger_button, self.insert_button, 
+            self.eject_button, self.runplate_button, self.move_button
         ]
         for button in buttons:
             button.setEnabled(True)
@@ -1023,6 +869,7 @@ class AMUZAGUI(QWidget):
     def resizeEvent(self, event):
         """Lock the aspect ratio of the window."""
         width = event.size().width()
+        height = event.size().height()
         aspect_ratio = 9 / 4
         new_height = int(width / aspect_ratio)
         self.resize(QSize(width, new_height))
@@ -1079,9 +926,8 @@ class AMUZAGUI(QWidget):
             ctrl_selected_wells.add(well_id)
             label.ctrl_select()
 
-
 # Start the application
-if __name__ == "__main__":
+if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = AMUZAGUI()
     window.show()
