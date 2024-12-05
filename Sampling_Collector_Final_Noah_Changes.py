@@ -255,7 +255,7 @@ class PlotWindow(QMainWindow):
         self.anim = FuncAnimation(
             self.figure, self.update_plot, interval=2500, save_count=100
         )
-        self.anim.event_source.stop()
+        self.anim.event_source.stop() #Dont want to keep updating itself when its on the default graph (only when reading from sensor)
 
     def toggle_mock_data_mode(self):
         """Toggle mock data mode for testing."""
@@ -300,7 +300,9 @@ class PlotWindow(QMainWindow):
             print(f"Error during data logging: {str(e)}")
 
     def update_plot(self,frame):
-        #Load the default graph if not plotting or loaded file
+        #One function which will grab the data from the correct file and then format it and then plot 
+        #There are three cases for which this is called1, startup which loads deafault, load file, and continous plot
+        #Stage 1 -Load the default graph if not plotting or loaded file
         if not self.loaded_file_path and not self.log_file_path:
             self.figure.clear()
             ax = self.figure.add_subplot(111)
@@ -315,8 +317,8 @@ class PlotWindow(QMainWindow):
             self.figure.subplots_adjust(
                 top=0.955, bottom=0.066, left=0.079, right=0.990
             )
-            self.canvas.draw()
-        
+
+        #Stage 2 - if there is a load file path then load data from there
         elif self.loaded_file_path:
             with open(self.loaded_file_path, "r", newline="") as file:
                 lines = file.readlines()
@@ -331,13 +333,10 @@ class PlotWindow(QMainWindow):
                 return
             data = [line.strip().split("\t") for line in lines]
 
-        if self.mock_data_mode:
-            df = self.generate_mock_data()
-            df = self.mock_data_df
-
+        #Stage 3 - if there is a connected sensor (filepath for the data) then plot its information
         elif self.log_file_path:
             #Process the continous data
-            if not self.last_processed_line: #When it is the first time receiving data
+            if not self.last_processed_line: #When it is the first time receiving data open the whole file
                 with open(self.log_file_path, "r", newline="") as file:
                     lines = file.readlines()
                 if len(lines) < 4:  # Ensure there is enough data for processing
@@ -345,17 +344,18 @@ class PlotWindow(QMainWindow):
                     return
                 data = [line.strip().split("\t") for line in lines]
                 
-            else:   
+            else: #When it is simply updating dont need to open the whole file only relevant lines
                 with open(self.log_file_path, "r", newline="") as file:
                     data = [
                         line.strip().split("\t")
                         for line in islice(file, self.last_processed_line, None)
                         ]
-        else:
+        else: # if it was called without the filepaths defined yet
             return
+        #Process the data into a data frame
         df = pd.DataFrame(data)
         df = df.loc[:, :8]
-        if self.loaded_file_path or not self.last_processed_line:
+        if self.loaded_file_path or not self.last_processed_line: #Extract headers from new files
             self.new_header = df.iloc[1]
             if self.loaded_file_path:
                 # Remove comments at the end if they appear
@@ -367,7 +367,7 @@ class PlotWindow(QMainWindow):
                         break
                 if len(index):
                     df = df.loc[0 : index[0] - 1, :]
-                df = df.apply(pd.to_numeric, errors="coerce")
+        df = df.apply(pd.to_numeric, errors="coerce")
         df.columns = self.new_header
         self.last_processed_line += len(data)
 
