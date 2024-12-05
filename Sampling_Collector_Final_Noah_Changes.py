@@ -255,6 +255,7 @@ class PlotWindow(QMainWindow):
         self.anim = FuncAnimation(
             self.figure, self.update_plot, interval=2500, save_count=100
         )
+        self.anim.event_source.stop()
 
     def toggle_mock_data_mode(self):
         """Toggle mock data mode for testing."""
@@ -390,6 +391,7 @@ class PlotWindow(QMainWindow):
         self.canvas.draw_idle()
 
     def load_file(self):
+        self.anim.event_source.stop()
         """Open a file dialog to select a file and load it into the plot."""
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Open File", "", "Text Files (*.txt);;All Files (*)"
@@ -533,6 +535,7 @@ class PlotWindow(QMainWindow):
             filename = f"Sensor_readings_{current_time.strftime('%d_%m_%y_%H_%M')}.txt"
             self.log_file_path = os.path.join(logger_folder, filename)
             self.loaded_file_path = None #Make sure no contradiction with a loaded file
+            self.anim.event_source.start()#start automatically updating the plotting
             threading.Thread(
                 target=self.run_datalogger, args=(self.log_file_path,), daemon=True
             ).start()
