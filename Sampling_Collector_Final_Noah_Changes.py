@@ -317,6 +317,8 @@ class PlotWindow(QMainWindow):
             self.figure.subplots_adjust(
                 top=0.955, bottom=0.066, left=0.079, right=0.990
             )
+            self.canvas.draw_idle()
+            return
 
         #Stage 2 - if there is a load file path then load data from there
         elif self.loaded_file_path:
