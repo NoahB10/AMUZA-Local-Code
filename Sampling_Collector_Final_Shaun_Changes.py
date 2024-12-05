@@ -1,7 +1,5 @@
 import sys
 import os
-import asyncio
-import time
 import threading
 from datetime import datetime
 import numpy as np
@@ -42,8 +40,8 @@ from SIX_SERVER_READER import PotentiostatReader
 import AMUZA_Master
 
 # Global variables
-t_buffer = 60  # 65
-t_sampling = 90  # 91
+t_buffer = 1  # 65
+t_sampling = 10  # 91
 sample_rate = 1
 connection = None  # This will be initialized after the user clicks 'Connect'
 selected_wells = (
@@ -95,12 +93,10 @@ class PlotWindow(QMainWindow):
         self.setWindowTitle("Data Plot")
         self.setGeometry(200, 200, 1100, 800)
         self.data_list = []
-        self.is_recording = False
         self.connection_status = False
         self.serial_connection = None
         self.default_file_path = None
         self.loaded_file_path = None  # Keep track of the loaded file
-        self.new_header = None
         self.current_plot_type = (
             "default"  # Tracks whether we are showing "default", "record", or "load"
         )
@@ -364,11 +360,10 @@ class PlotWindow(QMainWindow):
                 return
             df = pd.DataFrame(data)
             df = df.loc[:, :8]
-            df.columns = df.iloc[1]
+            df.columns = self.new_header
             df = df.apply(pd.to_numeric, errors="coerce")
             self.last_processed_line += len(data)
-            
-        print(df.columns)
+
         # Calculate metabolites
         metabolites = {
             "Glutamate": df["#1ch1"] - df["#1ch2"],
@@ -385,20 +380,12 @@ class PlotWindow(QMainWindow):
         ax.set_xlabel("Time (minutes)")
         ax.set_ylabel("mA")
         ax.set_title("Time Series Data for Selected Channels")
-        ax.set_xlim(0, df["t[min]"].max())
         ax.legend()
         ax.grid(True)
         self.canvas.draw_idle()
 
     def calibrate_sensors(self):
         """Perform calibration of the sensors based on current data values."""
-        if not self.is_recording:
-            QMessageBox.warning(
-                self,
-                "Calibration Error",
-                "Calibration can only be performed during data recording.",
-            )
-            return
         try:
             # Extract the current values from data_list
             current_glutamate = self.data_list[0] - self.data_list[1]
@@ -448,15 +435,7 @@ class PlotWindow(QMainWindow):
         if file_path:
             try:
                 if file_path.endswith(".txt"):
-                    if self.current_plot_type == "record" and self.default_file_path:
-                        # Save the recorded file
-                        with open(self.default_file_path, "r") as source_file:
-                            with open(file_path, "w") as dest_file:
-                                dest_file.write(source_file.read())
-                        QMessageBox.information(
-                            self, "Success", f"Data successfully saved to {file_path}"
-                        )
-                    elif self.current_plot_type == "load" and self.loaded_file_path:
+                    if self.current_plot_type == "load" and self.loaded_file_path:
                         # Save the loaded file
                         with open(self.loaded_file_path, "r") as source_file:
                             with open(file_path, "w") as dest_file:
@@ -537,37 +516,6 @@ class PlotWindow(QMainWindow):
         # To handle initial plotting, you can temporarily set last_processed_line to 0
         self.last_processed_line = 0
         self.update_initial_plot(df)
-
-    def write_record_data(self):
-        """Continuously write data from self.data_list into the specified record file with proper formatting."""
-        try:
-            with open(
-                self.current_record_file_path, "a"
-            ) as file:  # Open in append mode
-                counter = 1
-                start_time = time.time()
-
-                while self.is_recording:
-                    if self.data_list:
-                        # Calculate the elapsed time in minutes
-                        elapsed_time = (time.time() - start_time) / 60
-                        elapsed_time_str = f"{elapsed_time:.3f}"
-
-                        # Prepare the data line with counter, elapsed time, and sensor data
-                        data_str = "\t".join(map(str, self.data_list))
-                        line = f"{counter}\t{elapsed_time_str}\t{data_str}\n"
-
-                        # Write the line to the file
-                        file.write(line)
-                        file.flush()  # Ensure immediate write to disk
-                        print(f"Recorded data line: {line.strip()}")
-
-                        # Increment the counter
-                        counter += 1
-
-                    time.sleep(1)  # Adjust based on desired logging frequency
-        except Exception as e:
-            print(f"Error while writing record data: {str(e)}")
 
     def connect_to_sensor(self):
         """Toggle between connecting and disconnecting the sensor."""
@@ -995,7 +943,7 @@ class AMUZAGUI(QWidget):
                     AMUZA_Master.Sequence([AMUZA_Master.Method([loc], t_sampling)])
                 )
             # Start the Control_Move process
-            threading.Thread(target=self.Control_Move, args=(self.method, t_sampling), daemon=True).start()
+            self.Control_Move(self.method, t_sampling)
 
         else:
             self.add_to_display("No wells selected for RUNPLATE.")
@@ -1023,19 +971,20 @@ class AMUZAGUI(QWidget):
                     AMUZA_Master.Sequence([AMUZA_Master.Method([loc], t_sampling)])
                 )
             # Start the Control_Move process
-            threading.Thread(target=self.Control_Move, args=(self.method, t_sampling), daemon=True).start()
+            self.Control_Move(self.method, t_sampling)
         else:
             self.add_to_display("No wells selected for MOVE.")
 
-
     def Control_Move(self, method, duration):
-        """Simulate movement of the AMUZA system."""
-        for i in range(0, len(method)):
-            time.sleep(t_buffer)
-            connection.Move(method[i])
-            delay = 1
-            time.sleep(duration + 9 + delay)
-            
+        """Control the movement through wells using QTimer for non-blocking execution."""
+        self.current_index = 0  # Track the current well index
+        self.method = method
+        self.duration = duration
+
+        # Create a QTimer for handling the well movement
+        self.move_timer = QTimer(self)
+        self.move_timer.timeout.connect(self.execute_move)
+        self.move_timer.start(t_buffer * 1000)  # Start timer with initial buffer time
 
     def execute_move(self):
         """Execute the move for the current well using QTimer."""
