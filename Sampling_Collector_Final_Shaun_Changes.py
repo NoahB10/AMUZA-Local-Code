@@ -98,6 +98,8 @@ class PlotWindow(QMainWindow):
         self.is_recording = False
         self.connection_status = False
         self.serial_connection = None
+        self.thread = None
+        self.stop_event = threading.Event()
         self.default_file_path = None
         self.loaded_file_path = None  # Keep track of the loaded file
         self.new_header = None
@@ -294,18 +296,19 @@ class PlotWindow(QMainWindow):
 
     def run_datalogger(self, file_path):
         """Run the data logger, save data to file, and log updates to the command line."""
-        try:
-            print(f"Starting data logger on COM port: {self.selected_port}")
-            self.DataLogger = PotentiostatReader(
-                com_port=self.selected_port,
-                baud_rate=9600,
-                timeout=0.5,
-                output_filename=file_path,
-            )
-            self.DataLogger.run()
-        except Exception as e:
-            print(f"Error during data logging: {str(e)}")
-
+        while not self.stop_event.is_set():
+            try:
+                print(f"Starting data logger on COM port: {self.selected_port}")
+                self.DataLogger = PotentiostatReader(
+                    com_port=self.selected_port,
+                    baud_rate=9600,
+                    timeout=0.5,
+                    output_filename=file_path,
+                )
+                self.DataLogger.run()
+            except Exception as e:
+                print(f"Error during data logging: {str(e)}")
+            
     def update_initial_plot(self, df):
         if df is None:
             self.figure.clear()
@@ -358,36 +361,42 @@ class PlotWindow(QMainWindow):
             with open(self.log_file_path, "r", newline="") as file:
                 data = [
                     line.strip().split("\t")
-                    for line in islice(file, self.last_processed_line, None)
+                    for line in file
                 ]
             if not data:
                 return
             df = pd.DataFrame(data)
+            print(df)
             df = df.loc[:, :8]
-            df.columns = df.iloc[1]
             df = df.apply(pd.to_numeric, errors="coerce")
             self.last_processed_line += len(data)
-            
-        print(df.columns)
-        # Calculate metabolites
-        metabolites = {
-            "Glutamate": df["#1ch1"] - df["#1ch2"],
-            "Glutamine": df["#1ch3"] - df["#1ch1"],
-            "Glucose": df["#1ch5"] - df["#1ch4"],
-            "Lactate": df["#1ch6"] - df["#1ch4"],
-        }
+            print("last_line: ", self.last_processed_line)
+        print("DF: ", df)
+        try:
+            # Calculate metabolites
+            metabolites = {
+                "Glutamate": df.iloc[:,1] - df.iloc[:,2],
+                "Glutamine": df.iloc[:,3] - df.iloc[:,1],
+                "Glucose": df.iloc[:,5] - df.iloc[:,4],
+                "Lactate": df.iloc[:,6]- df.iloc[:,4],
+            }
+            self.figure.clear()
+            ax = self.figure.add_subplot(111)
+            for metabolite, values in metabolites.items():
+                scaled_values = values * self.gain_values[metabolite]
+                ax.plot(df.iloc[:,0], scaled_values, label=metabolite)
+            ax.set_xlim(0, df.iloc[:,0].max())
+            ax.set_ylim(0, df.max())
+            ax.set_xlabel("Time (minutes)")
+            ax.set_ylabel("mA")
+            ax.set_title("Time Series Data for Selected Channels")
+            ax.legend()
+            ax.grid(True)
 
-        self.figure.clear()
-        ax = self.figure.add_subplot(111)
-        for metabolite, values in metabolites.items():
-            scaled_values = values * self.gain_values[metabolite]
-            ax.plot(df["t[min]"], scaled_values, label=metabolite)
-        ax.set_xlabel("Time (minutes)")
-        ax.set_ylabel("mA")
-        ax.set_title("Time Series Data for Selected Channels")
-        ax.set_xlim(0, df["t[min]"].max())
-        ax.legend()
-        ax.grid(True)
+        except Exception as e:
+            print(e)
+       
+      
         self.canvas.draw_idle()
 
     def calibrate_sensors(self):
@@ -538,37 +547,6 @@ class PlotWindow(QMainWindow):
         self.last_processed_line = 0
         self.update_initial_plot(df)
 
-    def write_record_data(self):
-        """Continuously write data from self.data_list into the specified record file with proper formatting."""
-        try:
-            with open(
-                self.current_record_file_path, "a"
-            ) as file:  # Open in append mode
-                counter = 1
-                start_time = time.time()
-
-                while self.is_recording:
-                    if self.data_list:
-                        # Calculate the elapsed time in minutes
-                        elapsed_time = (time.time() - start_time) / 60
-                        elapsed_time_str = f"{elapsed_time:.3f}"
-
-                        # Prepare the data line with counter, elapsed time, and sensor data
-                        data_str = "\t".join(map(str, self.data_list))
-                        line = f"{counter}\t{elapsed_time_str}\t{data_str}\n"
-
-                        # Write the line to the file
-                        file.write(line)
-                        file.flush()  # Ensure immediate write to disk
-                        print(f"Recorded data line: {line.strip()}")
-
-                        # Increment the counter
-                        counter += 1
-
-                    time.sleep(1)  # Adjust based on desired logging frequency
-        except Exception as e:
-            print(f"Error while writing record data: {str(e)}")
-
     def connect_to_sensor(self):
         """Toggle between connecting and disconnecting the sensor."""
         if self.connection_status:  # If already connected, disconnect
@@ -579,6 +557,8 @@ class PlotWindow(QMainWindow):
                 self.serial_connection = None
                 self.connection_status = False
                 self.DataLogger.close_serial_connection()
+                self.stop_event.set()
+                self.thread.join()
                 self.status_label.setText("Disconnected")  # Update status label
                 QMessageBox.information(
                     self, "Disconnected", "Sensor disconnected successfully."
@@ -633,9 +613,10 @@ class PlotWindow(QMainWindow):
             filename = f"Sensor_readings_{current_time.strftime('%d_%m_%y_%H_%M')}.txt"
             self.default_file_path = os.path.join(logger_folder, filename)
             self.log_file_path = self.default_file_path
-            threading.Thread(
+            self.thread = threading.Thread(
                 target=self.run_datalogger, args=(self.default_file_path,), daemon=True
-            ).start()
+            )
+            self.thread.start()
             # run the plot start before continous plotting just to get it started
             QMessageBox.information(
                 self, "Info", "Connected to sensor and started logging and plotting."
