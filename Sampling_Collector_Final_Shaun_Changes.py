@@ -102,10 +102,8 @@ class PlotWindow(QMainWindow):
         self.stop_event = threading.Event()
         self.default_file_path = None
         self.loaded_file_path = None  # Keep track of the loaded file
-        self.new_header = None
-        self.current_plot_type = (
-            "default"  # Tracks whether we are showing "default", "record", or "load"
-        )
+        self.header = ['counter', 't[min]', '#1ch1', '#1ch2', '#1ch3', '#1ch4', '#1ch5', '#1ch6', '#1ch7']
+
         self.gain_values = {
             "Glutamate": 0.97,
             "Glutamine": 0.418,
@@ -369,35 +367,32 @@ class PlotWindow(QMainWindow):
             print(df)
             df = df.loc[:, :8]
             df = df.apply(pd.to_numeric, errors="coerce")
+            df.columns = self.header
             self.last_processed_line += len(data)
-            print("last_line: ", self.last_processed_line)
-        print("DF: ", df)
         try:
             # Calculate metabolites
             metabolites = {
-                "Glutamate": df.iloc[:,1] - df.iloc[:,2],
-                "Glutamine": df.iloc[:,3] - df.iloc[:,1],
-                "Glucose": df.iloc[:,5] - df.iloc[:,4],
-                "Lactate": df.iloc[:,6]- df.iloc[:,4],
+                "Glutamate": df["#1ch1"] - df["#1ch2"],
+                "Glutamine": df["#1ch3"] - df["#1ch1"],
+                "Glucose": df["#1ch5"] - df["#1ch4"],
+                "Lactate": df["#1ch6"] - df["#1ch4"],
             }
             self.figure.clear()
             ax = self.figure.add_subplot(111)
             for metabolite, values in metabolites.items():
                 scaled_values = values * self.gain_values[metabolite]
-                ax.plot(df.iloc[:,0], scaled_values, label=metabolite)
-            ax.set_xlim(0, df.iloc[:,0].max())
+                ax.plot(df["t[min]"], scaled_values, label=metabolite) #
+            ax.set_xlim(0, df["t[min]"].max())
             ax.set_ylim(0, df.max())
-            ax.set_xlabel("Time (minutes)")
-            ax.set_ylabel("mA")
-            ax.set_title("Time Series Data for Selected Channels")
-            ax.legend()
-            ax.grid(True)
 
         except Exception as e:
             print(e)
-       
-      
         self.canvas.draw_idle()
+        ax.set_xlabel("Time (minutes)")
+        ax.set_ylabel("mA")
+        ax.set_title("Time Series Data for Selected Channels")
+        ax.legend()
+        ax.grid(True)
 
     def calibrate_sensors(self):
         """Perform calibration of the sensors based on current data values."""
@@ -515,10 +510,8 @@ class PlotWindow(QMainWindow):
         data = [line.strip().split("\t") for line in lines]
         df = pd.DataFrame(data)
         df = df.loc[:, :8]
-        self.new_header = df.iloc[1]
         df = df[3:]
-        df.columns = self.new_header
-
+        df.columns = self.header
         # Remove comments at the end if they appear
         index = []
         for i in range(3, len(df) + 3):
