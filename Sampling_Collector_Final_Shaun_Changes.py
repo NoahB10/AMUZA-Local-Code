@@ -53,7 +53,6 @@ ctrl_selected_wells = (
     set()
 )  # Set to store wells selected with Ctrl+Click (used for MOVE)
 
-
 class WellLabel(QLabel):
     """Custom QLabel for well plate cells that supports click-and-drag and Ctrl+Click selection."""
 
@@ -828,6 +827,12 @@ class AMUZAGUI(QWidget):
         self.move_button.clicked.connect(self.on_move)
         self.command_layout.addWidget(self.move_button)
 
+        # Stop button
+        self.stop_button = QPushButton("STOP", self)
+        self.stop_button.setStyleSheet(rounded_button_style)
+        self.stop_button.clicked.connect(self.toggle_stop_flag)
+        self.command_layout.addWidget(self.stop_button)
+
         # Settings button
         self.settings_button = QPushButton("Settings", self)
         self.settings_button.setStyleSheet(rounded_button_style)
@@ -886,7 +891,13 @@ class AMUZAGUI(QWidget):
 
         # Set the layout for the QWidget
         self.setLayout(self.main_layout)
+        self.stop_flag = False
 
+    def toggle_stop_flag(self):
+        """Toggle the stop flag."""
+        self.stop_flag = True
+        self.add_to_display(f"Stopping")
+        
     def setup_well_plate(self):
         """Create a grid of 8x12 QLabel items representing the well plate."""
         rows = "ABCDEFGH"
@@ -947,6 +958,7 @@ class AMUZAGUI(QWidget):
         button.setStyleSheet(rounded_button_style)
 
     def on_runplate(self):
+        self.stop_flag = False
         """Display the selected wells for RUNPLATE in the console and display screen."""
         if selected_wells:
             self.well_list = self.order(list(selected_wells))
@@ -956,7 +968,6 @@ class AMUZAGUI(QWidget):
             if connection is None:
                 QMessageBox.critical(self, "Error", "Please connect to AMUZA first!")
                 return
-
             # Reset method list
             self.method = []
             # Adjust temperature before starting
@@ -976,6 +987,7 @@ class AMUZAGUI(QWidget):
 
     def on_move(self):
         """Display the selected wells for MOVE in the console and display screen."""
+        self.stop_flag = False
         if ctrl_selected_wells:
             self.well_list = self.order(list(ctrl_selected_wells))
             self.add_to_display(f"Moving to wells: {', '.join(self.well_list)}")
@@ -1005,6 +1017,8 @@ class AMUZAGUI(QWidget):
     def Control_Move(self, method, duration):
         """Simulate movement of the AMUZA system."""
         for i in range(0, len(method)):
+            if self.stop_flag:
+                break
             time.sleep(t_buffer)
             connection.Move(method[i])
             delay = 1
@@ -1124,6 +1138,7 @@ class AMUZAGUI(QWidget):
 
     def update_selection(self, end_row, end_col):
         """Update the selection from the start position to the current cursor position."""
+        selected_wells.clear()
         min_row, max_row = min(self.start_row, end_row), max(self.start_row, end_row)
         min_col, max_col = min(self.start_col, end_col), max(self.start_col, end_col)
         for label in self.well_labels.values():
@@ -1143,7 +1158,6 @@ class AMUZAGUI(QWidget):
         else:
             ctrl_selected_wells.add(well_id)
             label.ctrl_select()
-
 
 # Start the application
 if __name__ == "__main__":
