@@ -788,6 +788,23 @@ class AMUZAGUI(QWidget):
                 background-color: #D3D3D3; /* Even darker grey when pressed */
             }
         """
+        stop_button_style = """
+            QPushButton {
+                background-color: red ; /* Light grey background */
+                border: 1px solid black; /* Neutral grey border */
+                border-radius: 10px; /* Slight rounding of the corners */
+                padding: 2px 8px; /* Adjusted padding for a more compact look */
+                font-size: 13px; /* Smaller font size */
+                max-width: 170px; /* Maximum width to fit the text comfortably */
+                max-height: 32px; /* Maximum height for a smaller button */
+            }
+            QPushButton:hover {
+                background-color: #C0C0C0; /* Darker grey on hover */
+            }
+            QPushButton:pressed {
+                background-color: #D3D3D3; /* Even darker grey when pressed */
+            }
+        """
 
         # Connect button
         # Connect button
@@ -829,7 +846,7 @@ class AMUZAGUI(QWidget):
 
         # Stop button
         self.stop_button = QPushButton("STOP", self)
-        self.stop_button.setStyleSheet(rounded_button_style)
+        self.stop_button.setStyleSheet(stop_button_style)
         self.stop_button.clicked.connect(self.toggle_stop_flag)
         self.command_layout.addWidget(self.stop_button)
 
