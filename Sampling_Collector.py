@@ -363,7 +363,6 @@ class PlotWindow(QMainWindow):
             if not data:
                 return
             df = pd.DataFrame(data)
-            print(df)
             df = df.loc[:, :8]
             df = df.apply(pd.to_numeric, errors="coerce")
             df.columns = self.header
