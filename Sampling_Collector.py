@@ -1,6 +1,5 @@
 import sys
 import os
-import asyncio
 import time
 import threading
 from datetime import datetime
@@ -186,7 +185,7 @@ class PlotWindow(QMainWindow):
         # File Menu
         file_menu = menu_bar.addMenu("File")
         load_action = QAction("Load Saved", self)
-        load_action.triggered.connect(self.load_file)
+        load_action.triggered.connect(self.pick_file)
         file_menu.addAction(load_action)
 
         save_action = QAction("Save As", self)
@@ -368,11 +367,8 @@ class PlotWindow(QMainWindow):
                 ]
             if not data:
                 return
-            df = pd.DataFrame(data)
-            df = df.loc[:, :8]
+            df = self.clean_data(data)
             df = df.apply(pd.to_numeric, errors="coerce")
-            df.columns = self.header
-            df = df.drop(index=[0, 1, 2]).reset_index(drop=True) # remove the first 3 rows which are Nan
         try:
             # Calculate metabolites
             metabolites = {
@@ -486,7 +482,7 @@ class PlotWindow(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to save file: {e}")
 
-    def load_file(self):
+    def pick_file(self):
         """Open a file dialog to select a file and load it into the plot."""
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Open File", "", "Text Files (*.txt);;All Files (*)"
@@ -498,7 +494,9 @@ class PlotWindow(QMainWindow):
         if not os.path.exists(file_path):
             print("Invalid file path.")
             return
+        self.load_file(file_path)
 
+    def load_file(self,file_path):
         with open(file_path, "r", newline="") as file:
             lines = file.readlines()
 
@@ -511,12 +509,8 @@ class PlotWindow(QMainWindow):
                 "The selected file does not contain enough data for plotting.",
             )
             return
-
         data = [line.strip().split("\t") for line in lines]
-        df = pd.DataFrame(data)
-        df = df.loc[:, :8]
-        df = df[3:]
-        df.columns = self.header
+        df = self.clean_data(data)
         # Remove comments at the end if they appear
         index = []
         for i in range(3, len(df) + 3):
@@ -580,7 +574,14 @@ class PlotWindow(QMainWindow):
 
             dialog.setLayout(layout)
             dialog.exec_()
-
+    
+    def clean_data(self,data):
+        df = pd.DataFrame(data)
+        df = df.loc[:, :8]
+        df = df[3:]
+        df.columns = self.header
+        return df
+    
     def establish_connection(self, dialog, selected_port):
         """Establish a connection to the selected COM port and start continuous logging and plotting."""
         try:
@@ -634,6 +635,9 @@ class PlotWindow(QMainWindow):
         # Re-plot the data with updated gains
         if hasattr(self, "data") and not self.data.empty:
             self.update_plot(self.data)
+
+        elif self.loaded_file_path:
+            self.load_file(self.loaded_file_path)
 
 
 class SettingsDialog(QDialog):
