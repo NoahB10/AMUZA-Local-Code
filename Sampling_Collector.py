@@ -236,7 +236,14 @@ class PlotWindow(QMainWindow):
             gain_layout.addWidget(label)
             gain_layout.addWidget(input_field)
             self.gain_inputs[metabolite] = input_field
-
+  
+        # Create an "OK" button
+        ok_button = QPushButton("OK")
+        ok_button.setFixedWidth(60)
+        ok_button.clicked.connect(self.update_gain_values)  # Connect button to update method
+        
+        # Add button to the layout
+        gain_layout.addWidget(ok_button)
         # Add a horizontal stretch to push the Calibration Settings button to the right
         gain_layout.addStretch()
 
@@ -256,11 +263,10 @@ class PlotWindow(QMainWindow):
         central_widget = QWidget()
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
-        self.last_processed_line = 0
 
         # Set up FuncAnimation for continuous plotting
         self.anim = FuncAnimation(
-            self.figure, self.update_plot, interval=2500, save_count=100
+            self.figure, self.update_plot, interval=2000, save_count=100
         )
 
     def toggle_mock_data_mode(self):
@@ -366,7 +372,7 @@ class PlotWindow(QMainWindow):
             df = df.loc[:, :8]
             df = df.apply(pd.to_numeric, errors="coerce")
             df.columns = self.header
-            self.last_processed_line += len(data)
+            df = df.drop(index=[0, 1, 2]).reset_index(drop=True) # remove the first 3 rows which are Nan
         try:
             # Calculate metabolites
             metabolites = {
@@ -384,7 +390,8 @@ class PlotWindow(QMainWindow):
             ax.set_ylim(0, df.max())
 
         except Exception as e:
-            print(e)
+            #print(e)
+            False
         self.canvas.draw_idle()
         ax.set_xlabel("Time (minutes)")
         ax.set_ylabel("mA")
@@ -524,18 +531,8 @@ class PlotWindow(QMainWindow):
         else:
             df = df.apply(pd.to_numeric, errors="coerce")
 
-        # Save the starting dataset and initialize last processed line
-        self.last_processed_line = len(data)
-
         # Track the loaded file path
         self.loaded_file_path = file_path
-
-        # Set new_header appropriately if it's part of the class state
-        # (Already set above)
-
-        # Pass the initial dataset to update_plot for plotting
-        # To handle initial plotting, you can temporarily set last_processed_line to 0
-        self.last_processed_line = 0
         self.update_initial_plot(df)
 
     def connect_to_sensor(self):
@@ -891,12 +888,6 @@ class AMUZAGUI(QWidget):
             "8. Use 'Start DataLogger' to open up the plotting window.\n"
             "\n"
             "9. Review messages and logs in the display panel."
-            "\n"
-            "\n"
-            "\n"
-            "\n"
-            "\n"
-            "\n"
             "\n"
             "Coded By: Noah Bernten         Noah.Bernten@mail.huji.ac.il"
         )
