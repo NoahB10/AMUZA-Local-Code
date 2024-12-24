@@ -28,6 +28,8 @@ from PyQt5.QtWidgets import (
     QGridLayout,
     QFormLayout,
     QSpinBox,
+    QSpacerItem,
+    QSizePolicy,
     QPushButton,
     QLineEdit,
     QFileDialog,
@@ -231,11 +233,16 @@ class PlotWindow(QMainWindow):
             input_field = QLineEdit()
             input_field.setText(str(self.gain_values[metabolite]))
             input_field.setFixedWidth(60)
+            input_field.setFixedHeight(22)
             input_field.returnPressed.connect(self.update_gain_values)
             gain_layout.addWidget(label)
             gain_layout.addWidget(input_field)
             self.gain_inputs[metabolite] = input_field
   
+        # Add a spacer with a specific width to position the OK button
+        spacer = QSpacerItem(16, 20, QSizePolicy.Fixed, QSizePolicy.Minimum)
+        gain_layout.addSpacerItem(spacer)
+
         # Create an "OK" button
         ok_button = QPushButton("OK")
         ok_button.setFixedWidth(60)
@@ -248,7 +255,7 @@ class PlotWindow(QMainWindow):
 
         # Create and add the Calibration Settings button
         calibration_button = QPushButton("Calibration Settings", self)
-        calibration_button.setFixedWidth(140)
+        calibration_button.setFixedWidth(150)
         calibration_button.clicked.connect(self.open_calibration_settings)
         gain_layout.addWidget(calibration_button)
 
