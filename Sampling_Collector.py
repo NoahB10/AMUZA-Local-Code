@@ -12,9 +12,8 @@ from matplotlib.backends.backend_qt5agg import (
     NavigationToolbar2QT as NavigationToolbar,
 )
 import serial
-from itertools import islice
 from serial.tools import list_ports
-from PyQt5.QtCore import Qt, QSize, QTimer, QObject, pyqtSignal, QThread
+from PyQt5.QtCore import Qt, QSize, pyqtSignal
 from PyQt5.QtGui import QMouseEvent
 from PyQt5.QtWidgets import (
     QApplication,
