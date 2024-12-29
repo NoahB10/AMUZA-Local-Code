@@ -104,22 +104,20 @@ class PlotWindow(QMainWindow):
         self.default_file_path = None
         self.loaded_file_path = None  # Keep track of the loaded file
         self.header = ['counter', 't[min]', '#1ch1', '#1ch2', '#1ch3', '#1ch4', '#1ch5', '#1ch6', '#1ch7']
-
         self.gain_values = {
-            "Glutamate": 0.97,
-            "Glutamine": 0.418,
-            "Glucose": 0.6854,
-            "Lactate": 0.0609,
-        }
-
+                    "Glutamate": 3.394,
+                    "Glutamine": 0.974,
+                    "Glucose": 1.5,
+                    "Lactate": 0.515,
+                }
         self.mock_data_mode = False  # Add mock data mode flag
         self.mock_data_df = pd.DataFrame()  # Add mock data DataFrame
 
         # Calibration values
-        self.calibration_glutamate = 1.0
+        self.calibration_glutamate = 0.996
         self.calibration_glutamine = 1.0
-        self.calibration_glucose = 1.0
-        self.calibration_lactate = 1.0
+        self.calibration_glucose = 17.38
+        self.calibration_lactate = 9.94
 
         main_layout = QVBoxLayout()
 
@@ -990,6 +988,10 @@ class AMUZAGUI(QWidget):
         """Display the selected wells for RUNPLATE in the console and display screen."""
         self.stop_flag = False
         if selected_wells:
+            if not self.inserted:
+                self.on_insert()
+                time.sleep(6)
+                self.inserted = True
             self.well_list = self.order(list(selected_wells))
             self.add_to_display(
                 f"Running Plate on wells: {', '.join(self.well_list)}\nSampled:"
@@ -1021,6 +1023,10 @@ class AMUZAGUI(QWidget):
             """Display the selected wells for MOVE in the console and display screen."""
             self.stop_flag = False
             if ctrl_selected_wells:
+                if not self.inserted:
+                    self.on_insert()
+                    time.sleep(6)
+                    self.inserted = True
                 self.well_list = self.order(list(ctrl_selected_wells))
                 self.add_to_display(f"Moving to wells: {', '.join(self.well_list)}")
                 self.add_to_display("Sampled: ")
@@ -1122,6 +1128,7 @@ class AMUZAGUI(QWidget):
             return
         connection.Insert()
         self.add_to_display("Inserting tray.")
+        self.inserted = True
 
     def on_eject(self):
         if connection is None:
@@ -1129,6 +1136,7 @@ class AMUZAGUI(QWidget):
             return
         connection.Eject()
         self.add_to_display("Ejecting tray.")
+        self.inserted = False
 
     def resizeEvent(self, event):
         """Lock the aspect ratio of the window."""
