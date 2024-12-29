@@ -14,7 +14,7 @@ from matplotlib.backends.backend_qt5agg import (
 import serial
 from itertools import islice
 from serial.tools import list_ports
-from PyQt5.QtCore import Qt, QSize, QTimer
+from PyQt5.QtCore import Qt, QSize, QTimer, QObject, pyqtSignal, QThread
 from PyQt5.QtGui import QMouseEvent
 from PyQt5.QtWidgets import (
     QApplication,
@@ -92,6 +92,7 @@ class PlotWindow(QMainWindow):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.parent = parent  # Explicitly assign the parent
         self.setWindowTitle("Data Plot")
         self.setGeometry(200, 200, 1100, 800)
         self.data_list = []
@@ -752,6 +753,10 @@ class CalibrationSettingsDialog(QDialog):
 
 
 class AMUZAGUI(QWidget):
+    well_complete_signal = pyqtSignal(int)  # Signal for well completion
+    move_complete_signal = pyqtSignal()    # Signal for move completion
+    process_stopped_signal = pyqtSignal()
+
     def __init__(self):
         super().__init__()
 
@@ -911,6 +916,11 @@ class AMUZAGUI(QWidget):
         self.setLayout(self.main_layout)
         self.stop_flag = False
 
+        # Connect signals to slots
+        self.well_complete_signal.connect(self.update_display_for_well)
+        self.move_complete_signal.connect(self.on_moves_complete)
+        self.process_stopped_signal.connect(self.on_process_stopped)
+
     def toggle_stop_flag(self):
         """Toggle the stop flag."""
         if not self.stop_flag:
@@ -977,8 +987,8 @@ class AMUZAGUI(QWidget):
         button.setStyleSheet(rounded_button_style)
 
     def on_runplate(self):
-        self.stop_flag = False
         """Display the selected wells for RUNPLATE in the console and display screen."""
+        self.stop_flag = False
         if selected_wells:
             self.well_list = self.order(list(selected_wells))
             self.add_to_display(
@@ -998,74 +1008,76 @@ class AMUZAGUI(QWidget):
                 self.method.append(
                     AMUZA_Master.Sequence([AMUZA_Master.Method([loc], t_sampling)])
                 )
-            # Start the Control_Move process
-            threading.Thread(target=self.Control_Move, args=(self.method, t_sampling), daemon=True).start()
 
+            # Start the Control_Move process in a separate thread
+            thread = threading.Thread(
+                target=self.Control_Move, args=(self.method, t_sampling), daemon=True
+            )
+            thread.start()
         else:
             self.add_to_display("No wells selected for RUNPLATE.")
 
     def on_move(self):
-        """Display the selected wells for MOVE in the console and display screen."""
-        self.stop_flag = False
-        if ctrl_selected_wells:
-            self.well_list = self.order(list(ctrl_selected_wells))
-            self.add_to_display(f"Moving to wells: {', '.join(self.well_list)}")
-            self.add_to_display("Sampled: ")
-            if connection is None:
-                QMessageBox.critical(self, "Error", "Please connect to AMUZA first!")
-                return
-            # Reset method list
-            self.method = []
+            """Display the selected wells for MOVE in the console and display screen."""
+            self.stop_flag = False
+            if ctrl_selected_wells:
+                self.well_list = self.order(list(ctrl_selected_wells))
+                self.add_to_display(f"Moving to wells: {', '.join(self.well_list)}")
+                self.add_to_display("Sampled: ")
+                if connection is None:
+                    QMessageBox.critical(self, "Error", "Please connect to AMUZA first!")
+                    return
+                # Reset method list
+                self.method = []
 
-            # Adjust temperature before moving
-            connection.AdjustTemp(6)
+                # Adjust temperature before moving
+                connection.AdjustTemp(6)
 
-            # Map the wells and move
-            locations = connection.well_mapping(self.well_list)
-            for loc in locations:
-                # Append the method sequence for each location
-                self.method.append(
-                    AMUZA_Master.Sequence([AMUZA_Master.Method([loc], t_sampling)])
-                )
-            # Start the Control_Move process
-            threading.Thread(target=self.Control_Move, args=(self.method, t_sampling), daemon=True).start()
-        else:
-            self.add_to_display("No wells selected for MOVE.")
+                # Map the wells and move
+                locations = connection.well_mapping(self.well_list)
+                for loc in locations:
+                    # Append the method sequence for each location
+                    self.method.append(
+                        AMUZA_Master.Sequence([AMUZA_Master.Method([loc], t_sampling)])
+                    )
+
+                # Start the Control_Move process in a separate thread
+                thread = threading.Thread(target=self.Control_Move, args=(self.method, t_sampling), daemon=True)
+                thread.start()
+            else:
+                self.add_to_display("No wells selected for MOVE.")
 
 
     def Control_Move(self, method, duration):
         """Simulate movement of the AMUZA system."""
-        for i in range(0, len(method)):
+        for i, step in enumerate(method):
             if self.stop_flag:
-                break
-            time.sleep(t_buffer)
-            connection.Move(method[i])
-            delay = 1
-            time.sleep(duration + 9 + delay)
+                self.process_stopped_signal.emit()  # Emit stop signal
+                return  # Exit the method immediately
             
+            time.sleep(t_buffer)  # Simulate buffer time
+            connection.Move(step)  # Perform the move operation
+            self.well_complete_signal.emit(i)  # Emit signal for well completion
+            
+            delay = 1
+            time.sleep(duration + 9 + delay)  # Simulate move duration
 
-    def execute_move(self):
-        """Execute the move for the current well using QTimer."""
-        if self.current_index < len(self.method):
-            # Move to the current well and update the display
-            current_method = self.method[self.current_index]
-            connection.Move(current_method)
-            # Get the current text from the display
-            current_text = self.display_screen.toPlainText()
-            # Update the current line by appending the new well to it
-            updated_text = f"{current_text}{self.well_list[self.current_index]}, "
-            # Set the updated text back to the display
-            self.display_screen.setPlainText(updated_text)
-            self.display_screen.moveCursor(self.display_screen.textCursor().End)
-            # Increment the index and set a delay before the next move
-            self.current_index += 1
-            self.move_timer.setInterval(
-                (self.duration + 9) * 1000
-            )  # Set interval for duration + delay
-        else:
-            # Stop the timer when all wells have been processed
-            self.move_timer.stop()
-            self.add_to_display(f"{', '.join(self.well_list)} Complete.")
+        self.move_complete_signal.emit()  # Emit completion signal if not stopped
+
+    def update_display_for_well(self, well_index):
+        """Update the display when a well is completed."""
+        current_text = self.display_screen.toPlainText()
+        updated_text = f"{current_text}{self.well_list[well_index]}, "
+        self.display_screen.setPlainText(updated_text)
+        self.display_screen.moveCursor(self.display_screen.textCursor().End)
+
+    def on_moves_complete(self):
+        """Handle completion of all moves."""
+        self.add_to_display(f"{', '.join(self.well_list)} Complete.")
+
+    def on_process_stopped(self):
+        """Handle the process being stopped."""
+        self.add_to_display("Process stopped by the user.")
 
     def open_settings_dialog(self):
         """Open the settings dialog to adjust t_sampling and t_buffer."""
