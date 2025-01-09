@@ -451,23 +451,23 @@ class PlotWindow(QMainWindow):
             self.parent.add_to_display("Calibration settings updated.")
 
     def save_file(self):
-        """Save a copy of the current data file to a specified location based on current plot type."""
+        """Save a copy of the current data file to a specified location."""
         file_path, _ = QFileDialog.getSaveFileName(
             self, "Save File", "", "Text Files (*.txt)"
         )
         if file_path:
             try:
                 if file_path.endswith(".txt"):
-                    if self.current_plot_type == "record" and self.default_file_path:
-                        # Save the recorded file
+                    if self.default_file_path and os.path.exists(self.default_file_path):
+                        # Save the recorded data file
                         with open(self.default_file_path, "r") as source_file:
                             with open(file_path, "w") as dest_file:
                                 dest_file.write(source_file.read())
                         QMessageBox.information(
                             self, "Success", f"Data successfully saved to {file_path}"
                         )
-                    elif self.current_plot_type == "load" and self.loaded_file_path:
-                        # Save the loaded file
+                    elif self.loaded_file_path and os.path.exists(self.loaded_file_path):
+                        # Save the loaded data file
                         with open(self.loaded_file_path, "r") as source_file:
                             with open(file_path, "w") as dest_file:
                                 dest_file.write(source_file.read())
@@ -476,9 +476,7 @@ class PlotWindow(QMainWindow):
                         )
                     else:
                         QMessageBox.warning(
-                            self,
-                            "Warning",
-                            "No data available to save for the default plot.",
+                            self, "Warning", "No data is available to save."
                         )
                 else:
                     QMessageBox.warning(
@@ -486,6 +484,7 @@ class PlotWindow(QMainWindow):
                     )
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to save file: {e}")
+
 
     def pick_file(self):
         """Open a file dialog to select a file and load it into the plot."""
