@@ -916,6 +916,7 @@ class AMUZAGUI(QWidget):
         self.well_complete_signal.connect(self.update_display_for_well)
         self.move_complete_signal.connect(self.on_moves_complete)
         self.process_stopped_signal.connect(self.on_process_stopped)
+        self.inserted = True
 
     def toggle_stop_flag(self):
         """Toggle the stop flag."""
