@@ -37,7 +37,7 @@ from PyQt5.QtWidgets import (
     QComboBox,
 )
 
-# Custom Imports
+# Custom Imports Tested Works
 from SIX_SERVER_READER import PotentiostatReader
 import AMUZA_Master
 

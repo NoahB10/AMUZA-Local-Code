@@ -5,7 +5,7 @@ import sys
 import logging
 from datetime import datetime
 
-bt = 0  # Set to zero when editing program without the AMUZA connection and 1 for regular use
+bt = 1  # Set to zero when editing program without the AMUZA connection and 1 for regular use
 logs = False  # Add this line to toggle logging on/off
 if bt:
     import bluetooth
@@ -192,6 +192,7 @@ class AmuzaConnection:
             if logs:
                 print("Connection Success")
                 logging.info("Connection Success")
+            #Homeing
             socket.send("@?\n")
             time.sleep(0.2)
             socket.send("@Q\n")
